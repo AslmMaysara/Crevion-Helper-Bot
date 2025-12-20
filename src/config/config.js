@@ -1,3 +1,5 @@
+// src/config/config.js
+
 import dotenv from 'dotenv';
 
 // Load environment variables first

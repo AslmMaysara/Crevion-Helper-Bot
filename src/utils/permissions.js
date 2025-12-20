@@ -1,158 +1,188 @@
-import { config } from '../config/config.js';
-import { db } from './database.js';
+// src/utils/permissions.js - Complete Working Version with Database
 
-/**
- * Permission Levels (lowest to highest)
- */
+import { getConfig } from '../models/index.js';
+
+// Permission levels
 export const PermissionLevels = {
-    EVERYONE: 0,      // Everyone
-    MEMBER: 1,        // Regular members
-    VIP: 2,          // VIP members
-    HELPER: 3,       // Helpers
-    MODERATOR: 4,    // Moderators
-    ADMIN: 5,        // Admins
-    OWNER: 6         // Owners only
+    EVERYONE: 0,
+    MEMBER: 1,
+    VIP: 2,
+    HELPER: 3,
+    MODERATOR: 4,
+    ADMIN: 5,
+    OWNER: 6
 };
 
-/**
- * Check if user is owner
- */
-export function isOwner(userId) {
-    return config.permissions.owners.includes(userId);
-}
-
-/**
- * Get user's highest permission level (with database support)
- */
-export function getUserPermissionLevel(member) {
-    // Check if owner first
-    if (isOwner(member.user.id)) {
-        return PermissionLevels.OWNER;
-    }
-
-    // Check database for user-specific permissions
-    const userPerm = db.getUserPermission(member.user.id);
-    if (userPerm !== null) {
-        return userPerm;
-    }
-
-    // Check database for role-based permissions
-    let highestRoleLevel = -1;
-    for (const [roleId, level] of Object.entries(db.getAllRolePermissions())) {
-        if (member.roles.cache.has(roleId) && level > highestRoleLevel) {
-            highestRoleLevel = level;
-        }
-    }
-    if (highestRoleLevel !== -1) {
-        return highestRoleLevel;
-    }
-
-    // Fallback to config roles
-    if (hasAnyRole(member, config.permissions.roles.admin)) {
-        return PermissionLevels.ADMIN;
+// Parse permission level from string or number
+export function parsePermissionLevel(level) {
+    if (typeof level === 'number') {
+        return level;
     }
     
-    if (hasAnyRole(member, config.permissions.roles.moderator)) {
-        return PermissionLevels.MODERATOR;
+    if (typeof level === 'string') {
+        const levelMap = {
+            'everyone': PermissionLevels.EVERYONE,
+            'member': PermissionLevels.MEMBER,
+            'vip': PermissionLevels.VIP,
+            'helper': PermissionLevels.HELPER,
+            'moderator': PermissionLevels.MODERATOR,
+            'mod': PermissionLevels.MODERATOR,
+            'admin': PermissionLevels.ADMIN,
+            'owner': PermissionLevels.OWNER
+        };
+        
+        return levelMap[level.toLowerCase()] || PermissionLevels.EVERYONE;
     }
     
-    if (hasAnyRole(member, config.permissions.roles.helper)) {
-        return PermissionLevels.HELPER;
-    }
-    
-    if (hasAnyRole(member, config.permissions.roles.vip)) {
-        return PermissionLevels.VIP;
-    }
-    
-    if (hasAnyRole(member, config.permissions.roles.member)) {
-        return PermissionLevels.MEMBER;
-    }
-
     return PermissionLevels.EVERYONE;
 }
 
-/**
- * Check if member has any of the specified roles
- */
-function hasAnyRole(member, roleIds) {
-    if (!roleIds || roleIds.length === 0) return false;
-    
-    // @everyone case
-    if (roleIds.includes('@everyone')) return true;
-    
-    return roleIds.some(roleId => member.roles.cache.has(roleId));
+// Get user permission level from database
+export async function getUserPermissionLevel(member) {
+    try {
+        const dbConfig = await getConfig();
+        
+        if (!dbConfig) {
+            console.error('⚠️  No database config found!');
+            return PermissionLevels.EVERYONE;
+        }
+
+        const userId = member.id || member.user?.id;
+        
+        // Debug log
+        console.log(`\n🔍 [Permission Check] User: ${member.user?.tag || member.tag}`);
+        console.log(`   User ID: ${userId}`);
+        console.log(`   Owners in DB:`, dbConfig.permissions?.owners);
+
+        // Check if owner (HIGHEST PRIORITY)
+        const owners = dbConfig.permissions?.owners || [];
+        if (owners.includes(userId)) {
+            console.log(`   ✅ USER IS OWNER!`);
+            return PermissionLevels.OWNER;
+        }
+
+        // Check role-based permissions
+        const roles = member.roles?.cache || member.roles;
+
+        // Admin
+        const adminRoles = dbConfig.permissions?.roles?.admin || [];
+        const hasAdmin = adminRoles.some(roleId => roles.has(roleId));
+        if (hasAdmin) {
+            console.log(`   ✅ USER IS ADMIN!`);
+            return PermissionLevels.ADMIN;
+        }
+
+        // Moderator
+        const modRoles = dbConfig.permissions?.roles?.moderator || [];
+        const hasMod = modRoles.some(roleId => roles.has(roleId));
+        if (hasMod) {
+            console.log(`   ✅ USER IS MODERATOR!`);
+            return PermissionLevels.MODERATOR;
+        }
+
+        // Helper
+        const helperRoles = dbConfig.permissions?.roles?.helper || [];
+        const hasHelper = helperRoles.some(roleId => roles.has(roleId));
+        if (hasHelper) {
+            console.log(`   ✅ USER IS HELPER!`);
+            return PermissionLevels.HELPER;
+        }
+
+        // VIP
+        const vipRoles = dbConfig.permissions?.roles?.vip || [];
+        const hasVIP = vipRoles.some(roleId => roles.has(roleId));
+        if (hasVIP) {
+            console.log(`   ✅ USER IS VIP!`);
+            return PermissionLevels.VIP;
+        }
+
+        // Member (default)
+        console.log(`   ℹ️  USER IS MEMBER (default)`);
+        return PermissionLevels.MEMBER;
+
+    } catch (error) {
+        console.error('❌ Error getting user permission:', error);
+        return PermissionLevels.EVERYONE;
+    }
 }
 
-/**
- * Check if member has required permission (with dynamic command permissions)
- */
-export function hasPermission(member, commandName, requiredLevel) {
-    const userLevel = getUserPermissionLevel(member);
-    
-    // Check if command has custom permission level in database
-    const commandPerm = db.getCommandPermission(commandName);
-    const finalRequiredLevel = commandPerm !== null ? commandPerm : requiredLevel;
-    
-    return userLevel >= finalRequiredLevel;
+// Check if user has permission for command
+export async function hasPermission(member, commandName, requiredLevel) {
+    try {
+        const userLevel = await getUserPermissionLevel(member);
+        
+        console.log(`\n🔐 [Permission Check] Command: ${commandName}`);
+        console.log(`   User Level: ${userLevel} (${getPermissionLevelName(userLevel)})`);
+        console.log(`   Required Level: ${requiredLevel} (${getPermissionLevelName(requiredLevel)})`);
+        
+        const hasAccess = userLevel >= requiredLevel;
+        console.log(`   Result: ${hasAccess ? '✅ ACCESS GRANTED' : '❌ ACCESS DENIED'}\n`);
+        
+        return hasAccess;
+    } catch (error) {
+        console.error('❌ Permission check error:', error);
+        return false;
+    }
 }
 
-/**
- * Get command's required permission level
- */
-export function getCommandRequiredLevel(commandName, defaultLevel) {
-    const commandPerm = db.getCommandPermission(commandName);
-    return commandPerm !== null ? commandPerm : defaultLevel;
+// Get command required level (with database override)
+export async function getCommandRequiredLevel(commandName, defaultLevel, dbConfig = null) {
+    try {
+        if (!dbConfig) {
+            dbConfig = await getConfig();
+        }
+
+        // Check if there's a command-specific override in database
+        const commandOverride = dbConfig?.commandPermissions?.[commandName];
+        if (commandOverride !== undefined) {
+            return parsePermissionLevel(commandOverride);
+        }
+        
+        return defaultLevel !== undefined ? defaultLevel : PermissionLevels.EVERYONE;
+    } catch (error) {
+        return defaultLevel || PermissionLevels.EVERYONE;
+    }
 }
 
-/**
- * Get permission level name
- */
+// Get permission level name
 export function getPermissionLevelName(level) {
     const names = {
-        [PermissionLevels.EVERYONE]: 'Everyone',
-        [PermissionLevels.MEMBER]: 'Member',
-        [PermissionLevels.VIP]: 'VIP',
-        [PermissionLevels.HELPER]: 'Helper',
-        [PermissionLevels.MODERATOR]: 'Moderator',
-        [PermissionLevels.ADMIN]: 'Admin',
-        [PermissionLevels.OWNER]: 'Owner'
+        0: 'Everyone',
+        1: 'Member',
+        2: 'VIP',
+        3: 'Helper',
+        4: 'Moderator',
+        5: 'Admin',
+        6: 'Owner'
     };
     return names[level] || 'Unknown';
 }
 
-/**
- * Parse permission level from string
- */
-export function parsePermissionLevel(levelStr) {
-    const normalized = levelStr.toLowerCase();
-    const mapping = {
-        'everyone': PermissionLevels.EVERYONE,
-        'member': PermissionLevels.MEMBER,
-        'vip': PermissionLevels.VIP,
-        'helper': PermissionLevels.HELPER,
-        'mod': PermissionLevels.MODERATOR,
-        'moderator': PermissionLevels.MODERATOR,
-        'admin': PermissionLevels.ADMIN,
-        'owner': PermissionLevels.OWNER
-    };
-    return mapping[normalized];
-}
-
-/**
- * Unified permission error message
- */
+// Get error message for insufficient permissions
 export function getPermissionErrorMessage(requiredLevel) {
     return {
         embeds: [{
-            color: config.settings.errorColor,
-            title: '🔒 Insufficient Permissions',
-            description: `This command requires: **${getPermissionLevelName(requiredLevel)}** or higher`,
-            footer: {
-                text: config.settings.embedFooter,
-                icon_url: config.settings.embedFooterIcon
-            },
-            timestamp: new Date()
+            color: 0xED4245,
+            title: '🔒 Access Denied',
+            description: `You don't have permission to use this command.\n\n**Required Level:** ${getPermissionLevelName(requiredLevel)}\n\n**Need help?** Contact a server administrator.`,
+            footer: { text: 'Crévion Community' }
         }],
         ephemeral: true
     };
+}
+
+// Check if user is owner (quick check)
+export async function isOwner(userId) {
+    try {
+        const dbConfig = await getConfig();
+        const owners = dbConfig?.permissions?.owners || [];
+        return owners.includes(userId);
+    } catch (error) {
+        return false;
+    }
+}
+
+// Check if user has role
+export function hasRole(member, roleId) {
+    return member.roles?.cache?.has(roleId) || member.roles?.has(roleId) || false;
 }

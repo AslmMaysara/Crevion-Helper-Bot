@@ -1,10 +1,11 @@
+// src/index.js - Updated with MongoDB Integration
+
 import { Client, GatewayIntentBits, Events, Collection, ActivityType } from 'discord.js';
 import { readdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { config } from './config/config.js';
-import { hasPermission, getPermissionErrorMessage, getCommandRequiredLevel } from './utils/permissions.js';
-import { lineManager } from './utils/lineManager.js';
+import { connectDatabase, getConfig, incrementCommandCount, incrementErrorCount } from './models/index.js';
+import { initChallengeScheduler } from './utils/challengeScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,8 +20,8 @@ const client = new Client({
     ]
 });
 
-// Bot configuration
-const BOT_CONFIG = {
+// Bot configuration - Will be loaded from database
+let BOT_CONFIG = {
     name: 'Crévion',
     description: 'Crévion Community Helper Bot ✔︎',
     version: '2.0.0',
@@ -43,13 +44,8 @@ client.commands = new Collection();
 client.prefixCommands = new Collection();
 client.config = BOT_CONFIG;
 
-// Load line URL from storage
-try {
-    client.lineUrl = lineManager.getUrl();
-} catch (error) {
-    console.warn('⚠️  Could not load line URL:', error.message);
-    client.lineUrl = null;
-}
+// Database config will be stored here
+client.dbConfig = null;
 
 // Stats tracking
 client.stats = {
@@ -204,12 +200,16 @@ async function loadEvents() {
 function setCustomStatus() {
     let currentIndex = 0;
 
-    const updateStatus = () => {
+    const updateStatus = async () => {
         try {
+            // Get status from database
+            const dbConfig = await getConfig();
+            const savedStatus = dbConfig?.status || 'idle';
+            
             const activity = BOT_CONFIG.activities[currentIndex];
             client.user.setPresence({
                 activities: [activity],
-                status: BOT_CONFIG.presence.status,
+                status: savedStatus, // Use status from database
                 afk: BOT_CONFIG.presence.afk
             });
 
@@ -220,7 +220,7 @@ function setCustomStatus() {
     };
 
     updateStatus();
-    setInterval(updateStatus, BOT_CONFIG.statusRotationInterval);
+    client.statusRotation = setInterval(updateStatus, BOT_CONFIG.statusRotationInterval);
 }
 
 // Slash command handler
@@ -231,37 +231,43 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!cmd) return;
 
     try {
-        // Permission check
+        // Get config from database
+        const dbConfig = client.dbConfig || await getConfig();
+        
+        // Permission check using database permissions
         if (cmd.permission !== undefined) {
             const member = await interaction.guild.members.fetch(interaction.user.id);
             
-            if (!hasPermission(member, interaction.commandName, cmd.permission)) {
-                const requiredLevel = getCommandRequiredLevel(interaction.commandName, cmd.permission);
-                return await interaction.reply(getPermissionErrorMessage(requiredLevel));
+            // Import hasPermission
+            const { hasPermission } = await import('./utils/permissions.js');
+            const hasAccess = await hasPermission(member, interaction.commandName, cmd.permission);
+            
+            if (!hasAccess) {
+                const { getPermissionErrorMessage, getPermissionLevelName } = await import('./utils/permissions.js');
+                return await interaction.reply(getPermissionErrorMessage(cmd.permission));
             }
         }
 
         // Execute command
         await cmd.execute(interaction, client);
-        client.stats.commandsExecuted++;
         
-        if (config.features.commandLogging) {
-            console.log(`📝 ${interaction.user.tag} used /${interaction.commandName}`);
-        }
+        // Increment counter in database
+        await incrementCommandCount();
+        
+        console.log(`📝 ${interaction.user.tag} used /${interaction.commandName}`);
         
     } catch (err) {
         console.error(`❌ Error in command ${interaction.commandName}:`, err);
-        client.stats.errors++;
+        
+        // Increment error counter in database
+        await incrementErrorCount();
         
         const errorMessage = {
             embeds: [{
-                color: config.settings.errorColor,
+                color: 0xED4245,
                 title: '❌ حدث خطأ',
                 description: 'حدث خطأ أثناء تنفيذ الأمر. يرجى المحاولة مرة أخرى.',
-                footer: {
-                    text: config.settings.embedFooter,
-                    icon_url: config.settings.embedFooterIcon
-                }
+                footer: { text: 'Crévion Community' }
             }],
             ephemeral: true
         };
@@ -289,11 +295,57 @@ client.once(Events.ClientReady, async readyClient => {
     console.log(`👥 Users: ${readyClient.users.cache.size}`);
     console.log(`⚡ Slash Commands: ${client.commands.size}`);
     console.log(`💬 Prefix Commands: ${client.prefixCommands.size}`);
-    console.log(`📌 Prefix: ${config.settings.prefix}`);
+    
+    // Load config from database
+    try {
+        const firstGuild = readyClient.guilds.cache.first();
+        client.dbConfig = await getConfig();
+        
+        // Update guild info in database if changed
+        if (client.dbConfig && (!client.dbConfig.guildId || client.dbConfig.guildId !== firstGuild.id)) {
+            const { updateConfig } = await import('./models/index.js');
+            await updateConfig({
+                guildId: firstGuild.id,
+                guildName: firstGuild.name
+            });
+        }
+        
+        console.log(`📌 Prefix: ${client.dbConfig?.prefix || '-'}`);
+        console.log(`🗃️  Database Config Loaded`);
+    } catch (error) {
+        console.error('⚠️  Could not load database config:', error.message);
+        console.log(`📌 Prefix: - (fallback)`);
+    }
+    
     console.log('='.repeat(60) + '\n');
 
     setCustomStatus();
+    
+    // 🧩 Start Daily Challenge Scheduler
+    try {
+        initChallengeScheduler(readyClient);
+        console.log('✅ Daily Challenge Scheduler initialized');
+    } catch (error) {
+        console.error('⚠️  Challenge Scheduler failed:', error.message);
+    }
+    
+    // 🎤 Auto-join voice channel
+    try {
+        const { autoJoinVoice } = await import('./commands/owner/voice.js');
+        await autoJoinVoice(readyClient);
+    } catch (error) {
+        console.log('ℹ️  Voice auto-join skipped:', error.message);
+    }
 });
+
+// Permission check using database
+async function checkPermissionFromDB(member, requiredLevel, dbConfig) {
+    // This function is now deprecated - using permissions.js instead
+    // Kept for compatibility
+    const { getUserPermissionLevel } = await import('./utils/permissions.js');
+    const userLevel = await getUserPermissionLevel(member);
+    return userLevel >= requiredLevel;
+}
 
 // Error handlers
 process.on('SIGINT', async () => {
@@ -327,11 +379,15 @@ async function start() {
         console.log('🚀 Starting Crevion Bot...');
         console.log('='.repeat(60));
         
+        // Connect to MongoDB FIRST
+        console.log('🗃️  Connecting to MongoDB...');
+        await connectDatabase();
+        
         await loadCommands();
         await loadEvents();
         
         console.log('🔐 Logging in to Discord...\n');
-        await client.login(config.token);
+        await client.login(process.env.DISCORD_TOKEN);
         
     } catch (error) {
         console.error('\n' + '='.repeat(60));
@@ -339,8 +395,8 @@ async function start() {
         console.error('='.repeat(60));
         console.error(error);
         console.error('\n💡 Common solutions:');
-        console.error('   1. Check your .env file for correct TOKEN and CLIENT_ID');
-        console.error('   2. Make sure bot has proper permissions');
+        console.error('   1. Check your .env file for correct TOKEN and MONGODB_URI');
+        console.error('   2. Make sure MongoDB is running');
         console.error('   3. Run: npm install');
         console.error('   4. Run: npm run deploy');
         console.error('='.repeat(60) + '\n');

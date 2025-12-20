@@ -1,10 +1,31 @@
+// src/events/messageCreate.js - Enhanced with Fun Bot Mentions
+
 import { Events, AttachmentBuilder } from 'discord.js';
 import fetch from 'node-fetch';
-import { config } from '../config/config.js';
-import { hasPermission, getPermissionErrorMessage, getUserPermissionLevel, getCommandRequiredLevel } from '../utils/permissions.js';
+import { getConfig, incrementCommandCount, incrementErrorCount } from '../models/index.js';
+import { hasPermission, getPermissionErrorMessage, getCommandRequiredLevel } from '../utils/permissions.js';
 import { autoReply } from '../utils/autoreply.js';
 import { autoLine } from '../utils/autoline.js';
 import { lineManager } from '../utils/lineManager.js';
+
+// 🎭 Fun bot mention responses (random selection)
+const FUN_MENTIONS = [
+    "أهلاً بك يا صديقي 👋 معاك الـ Aura Farmer بنفسو **Crévion** 🔥",
+    "يسطا انت منور السيرفر كله 💫 محتاج حاجة؟",
+    "مرحبا بالأسطورة 🎯 أنا Crévion في خدمتك!",
+    "يا هلا والله 🌟 تحت أمرك يا فنان!",
+    "وعليكم السلام 😎 Crévion حاضر دايماً!",
+    "نورت يا كبير 👑 قول وأنا أنفذ!",
+    "تشرفنا 🎨 أنا هنا عشان أساعدك!",
+    "يا مساء الفل 🌸 محتاج مساعدة في حاجة؟",
+    "مين دا اللي نور المكان؟ ✨ أهلاً بيك!",
+    "يسطا انت جامد فشخ 🔥 عايز إيه النهاردة؟",
+    "هاي هاي 👋 Crévion Bot في الخدمة!",
+    "بص بص مين جالنا 🎭 الإبداع وصل!",
+    "تعالى يا عم المبدع 🚀 أنا جاهز!",
+    "كده كده المكان بقى فخم 💎 تحت أمرك!",
+    "يا نهار أسود منور 🌟 تشرفنا بيك!"
+];
 
 export default {
     name: Events.MessageCreate,
@@ -21,28 +42,25 @@ export default {
 
 async function processMessage(message, client) {
     
-    // 💬 Bot mention response
+    // 💬 Bot mention response with FUN random replies
     const botMentioned = message.mentions.has(client.user);
     const hasEveryone = message.mentions.everyone;
 
     if (botMentioned && !hasEveryone) {
-        const embed = {
-            color: config.settings.defaultColor,
-            title: '# **مرحبا بك في مجتمع الابداع !**',
-            description: `هنا يجتمع المبدعون من كل مجالات الإبداع الرقمي في مساحة واحدة تجمع الشغف، التعاون، والإلهام.\nنهدف إلى بناء بيئة راقية وصناعة محتوى مميز ، وتدعم كل من يسعى للتطور وتحقيق رؤيته الإبداعية.\n\nسواء كنت في بداية رحلتك أو محترفًا في مجالك،\nستجد هنا كل ما تحتاجه للنمو — من تحديات شهرية وورش تعليمية إلى تعاون بين الأعضاء ومشاريع مشتركة.\n\nهدفنا هو خلق مجتمع حقيقي يجمع العقول المبدعة،\nويشجع على مشاركة المعرفة، وبناء علاقات تعاونية تفتح آفاقًا جديدة لكل عضو.\n\nهنا، لا حدود للإبداع — فقط شغف، تطوّر، وفرص لا تنتهي.\n\nومع الإبداع، يأتي جو المجتمع — فعاليات، تفاعل، وطاقة تشعل الحماس وتحوّل كل لحظة لتجربة ملهمة.\n\nانضم إلينا وكن جزءًا من هذا العالم الذي يقدّر الإبداع ويسعى دائمًا نحو التميّز والابتكار.`,
-            thumbnail: { url: config.settings.embedThumbnail },
-            footer: {
-                text: config.settings.embedFooter,
-                icon_url: config.settings.embedFooterIcon
-            },
-            timestamp: new Date()
-        };
-
-        return await message.reply({ embeds: [embed] });
+        // Select random fun response
+        const randomResponse = FUN_MENTIONS[Math.floor(Math.random() * FUN_MENTIONS.length)];
+        
+        // Reply WITHOUT mention (clean reply)
+        return await message.reply({ 
+            content: randomResponse,
+            allowedMentions: { repliedUser: false }
+        });
     }
 
     // 🎨 Auto Line System - INSTANT (NO COOLDOWN)
-    const lineUrl = lineManager.getUrl();
+    const dbConfig = client.dbConfig || await getConfig();
+    const lineUrl = dbConfig?.lineConfig?.url || lineManager.getUrl();
+    
     if (autoLine.isEnabled(message.channel.id) && lineUrl) {
         try {
             // Send line immediately after every message
@@ -69,7 +87,10 @@ async function processMessage(message, client) {
             }
 
             if (replyData.reply) {
-                await message.reply(responseContent);
+                await message.reply({
+                    content: responseContent,
+                    allowedMentions: { repliedUser: false }
+                });
             } else {
                 await message.channel.send(responseContent);
             }
@@ -83,15 +104,22 @@ async function processMessage(message, client) {
     if (content === "خط" || content === "line") {
         const member = await message.guild.members.fetch(message.author.id);
         
-        // Check if member has allowed role
-        if (!lineManager.hasPermission(member)) {
-            // Silently ignore if user doesn't have permission
-            return;
+        // Check if member has allowed role from database
+        if (dbConfig?.lineConfig?.allowedRoles) {
+            const hasRole = member.roles.cache.some(role => 
+                dbConfig.lineConfig.allowedRoles.includes(role.id)
+            );
+            if (!hasRole) return; // Silently ignore
+        } else if (!lineManager.hasPermission(member)) {
+            return; // Fallback to old system
         }
 
-        const lineUrl = lineManager.getUrl();
+        const lineUrl = dbConfig?.lineConfig?.url || lineManager.getUrl();
         if (!lineUrl) {
-            return await message.reply("⚠️ No line image configured. Ask an admin to set one using `/line set`");
+            return await message.reply({
+                content: "⚠️ No line image configured. Ask an admin to set one using `/line set`",
+                allowedMentions: { repliedUser: false }
+            });
         }
 
         try {
@@ -106,13 +134,16 @@ async function processMessage(message, client) {
 
         } catch (err) {
             console.error('❌ Error sending line image:', err.message);
-            await message.reply('❌ Error loading image. Please check the URL!');
+            await message.reply({
+                content: '❌ Error loading image. Please check the URL!',
+                allowedMentions: { repliedUser: false }
+            });
         }
         return;
     }
 
     // 🔧 Prefix Commands Handler
-    const prefix = config.settings.prefix;
+    const prefix = dbConfig?.prefix || '-';
     if (!message.content.startsWith(prefix)) return;
 
     const args = message.content.slice(prefix.length).trim().split(/ +/);
@@ -124,40 +155,45 @@ async function processMessage(message, client) {
     if (!command) return;
 
     try {
-        // 🔐 Permission check
+        // 🔐 Permission check using database
         if (command.permission !== undefined) {
             const member = await message.guild.members.fetch(message.author.id);
             
             if (!hasPermission(member, commandName, command.permission)) {
                 const requiredLevel = getCommandRequiredLevel(commandName, command.permission);
                 const errorMsg = getPermissionErrorMessage(requiredLevel);
-                return await message.reply(errorMsg);
+                return await message.reply({
+                    ...errorMsg,
+                    allowedMentions: { repliedUser: false }
+                });
             }
         }
 
         // Execute command
         await command.executePrefix(message, args, client);
-        client.stats.commandsExecuted++;
+        
+        // Increment counter in database
+        await incrementCommandCount();
 
         // Log command
-        if (config.features.commandLogging) {
-            console.log(`📝 ${message.author.tag} used ${prefix}${commandName}`);
-        }
+        console.log(`📝 ${message.author.tag} used ${prefix}${commandName}`);
 
     } catch (err) {
         console.error(`❌ Error in prefix command ${commandName}:`, err);
-        client.stats.errors++;
+        
+        // Increment error counter in database
+        await incrementErrorCount();
 
         const errorEmbed = {
-            color: config.settings.errorColor,
+            color: 0xED4245,
             title: '❌ Error',
             description: 'An error occurred while executing the command. Please try again.',
-            footer: {
-                text: config.settings.embedFooter,
-                icon_url: config.settings.embedFooterIcon
-            }
+            footer: { text: 'Crévion Community' }
         };
 
-        await message.reply({ embeds: [errorEmbed] }).catch(console.error);
+        await message.reply({ 
+            embeds: [errorEmbed],
+            allowedMentions: { repliedUser: false }
+        }).catch(console.error);
     }
 }
