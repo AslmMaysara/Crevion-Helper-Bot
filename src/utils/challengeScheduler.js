@@ -1,115 +1,30 @@
-// src/utils/challengeScheduler.js - Daily Challenge Posting System
+// src/utils/challengeScheduler.js - LEETCODE API INTEGRATION
 
 import { Challenge, getConfig } from '../models/index.js';
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import fetch from 'node-fetch';
+import { aiManager, SYSTEM_PROMPTS } from './aiManager.js';
 
-// Challenge templates pool
-const CHALLENGE_TEMPLATES = [
-    {
-        difficulty: 'easy',
-        topics: ['Arrays', 'Strings'],
-        title: 'Two Sum',
-        problem: {
-            statement: 'Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to target.',
-            examples: [
-                {
-                    input: 'nums = [2,7,11,15], target = 9',
-                    output: '[0,1]',
-                    explanation: 'Because nums[0] + nums[1] == 9, we return [0, 1].'
-                }
-            ],
-            constraints: [
-                '2 <= nums.length <= 10^4',
-                '-10^9 <= nums[i] <= 10^9',
-                'Only one valid answer exists'
-            ],
-            hints: ['Use a hash map for O(n) solution', 'Think about what you need to find']
-        },
-        links: {
-            leetcode: 'https://leetcode.com/problems/two-sum/',
-            other: null
-        }
-    },
-    {
-        difficulty: 'medium',
-        topics: ['Arrays', 'Hash Table', 'Sliding Window'],
-        title: 'Longest Substring Without Repeating Characters',
-        problem: {
-            statement: 'Given a string `s`, find the length of the longest substring without repeating characters.',
-            examples: [
-                {
-                    input: 's = "abcabcbb"',
-                    output: '3',
-                    explanation: 'The answer is "abc", with the length of 3.'
-                },
-                {
-                    input: 's = "bbbbb"',
-                    output: '1',
-                    explanation: 'The answer is "b", with the length of 1.'
-                }
-            ],
-            constraints: [
-                '0 <= s.length <= 5 * 10^4',
-                's consists of English letters, digits, symbols and spaces.'
-            ],
-            hints: ['Use sliding window technique', 'Track characters with a Set or Map']
-        },
-        links: {
-            leetcode: 'https://leetcode.com/problems/longest-substring-without-repeating-characters/',
-            other: null
-        }
-    },
-    {
-        difficulty: 'difficult',
-        topics: ['Arrays', 'Binary Search', 'Divide and Conquer'],
-        title: 'Median of Two Sorted Arrays',
-        problem: {
-            statement: 'Given two sorted arrays `nums1` and `nums2` of size m and n respectively, return the median of the two sorted arrays. The overall run time complexity should be O(log (m+n)).',
-            examples: [
-                {
-                    input: 'nums1 = [1,3], nums2 = [2]',
-                    output: '2.00000',
-                    explanation: 'merged array = [1,2,3] and median is 2.'
-                }
-            ],
-            constraints: [
-                'nums1.length == m',
-                'nums2.length == n',
-                '0 <= m <= 1000',
-                '0 <= n <= 1000',
-                '-10^6 <= nums1[i], nums2[i] <= 10^6'
-            ],
-            hints: ['Use binary search on the smaller array', 'Think about partitioning']
-        },
-        links: {
-            leetcode: 'https://leetcode.com/problems/median-of-two-sorted-arrays/',
-            other: null
-        }
-    }
-];
+// LeetCode API endpoints (unofficial GraphQL API)
+const LEETCODE_API = 'https://leetcode.com/graphql';
 
-export class ChallengeScheduler {
+class LeetCodeChallengeScheduler {
     constructor(client) {
         this.client = client;
         this.schedulerInterval = null;
     }
 
-    // Start the scheduler
     async start() {
-        console.log('🧩 Starting Daily Challenge Scheduler...');
-        
-        // Check immediately on startup
+        console.log('🧩 Starting LeetCode Challenge Scheduler...');
         await this.checkAndPost();
         
-        // Then check every hour
         this.schedulerInterval = setInterval(async () => {
             await this.checkAndPost();
         }, 60 * 60 * 1000); // Check every hour
         
-        console.log('✅ Challenge Scheduler started (checks every hour)');
+        console.log('✅ Challenge Scheduler started');
     }
 
-    // Stop the scheduler
     stop() {
         if (this.schedulerInterval) {
             clearInterval(this.schedulerInterval);
@@ -117,17 +32,21 @@ export class ChallengeScheduler {
         }
     }
 
-    // Check if it's time to post and post challenge
     async checkAndPost() {
         try {
+            const dbConfig = await getConfig();
+            if (!dbConfig?.features?.problemSolving) {
+                console.log('ℹ️  Challenge system disabled');
+                return;
+            }
+
             const now = new Date();
             const cairoTime = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
             const hour = cairoTime.getHours();
             const minute = cairoTime.getMinutes();
 
-            // Post at 12:00 PM Cairo time (with 5-minute window)
+            // Post at 12:00 PM Cairo time
             if (hour === 12 && minute < 5) {
-                // Check if we already posted today
                 const today = new Date(cairoTime);
                 today.setHours(0, 0, 0, 0);
                 
@@ -141,15 +60,182 @@ export class ChallengeScheduler {
                     return;
                 }
 
-                // Post new challenge
                 await this.postDailyChallenge();
             }
         } catch (error) {
-            console.error('❌ Error in challenge scheduler:', error);
+            console.error('❌ Error in scheduler:', error);
         }
     }
 
-    // Post a new daily challenge
+    // ✅ NEW: Fetch random problem from LeetCode
+    async fetchLeetCodeProblem() {
+        try {
+            // GraphQL query to get daily problem or random problem
+            const query = `
+            query questionOfToday {
+              activeDailyCodingChallengeQuestion {
+                date
+                link
+                question {
+                  title
+                  titleSlug
+                  difficulty
+                  content
+                  topicTags {
+                    name
+                  }
+                  codeSnippets {
+                    lang
+                    code
+                  }
+                  sampleTestCase
+                  exampleTestcases
+                }
+              }
+            }`;
+
+            const response = await fetch(LEETCODE_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ query }),
+                timeout: 10000
+            });
+
+            if (!response.ok) {
+                throw new Error(`LeetCode API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const challengeData = data.data.activeDailyCodingChallengeQuestion;
+
+            if (!challengeData) {
+                // Fallback: Get random problem
+                return await this.getRandomProblem();
+            }
+
+            return this.formatLeetCodeProblem(challengeData);
+
+        } catch (error) {
+            console.error('❌ LeetCode API error:', error);
+            // Fallback to manual problem
+            return await this.getRandomProblem();
+        }
+    }
+
+    // Format LeetCode problem data
+    formatLeetCodeProblem(challengeData) {
+        const question = challengeData.question;
+        
+        // Extract language from code snippets
+        const jsSnippet = question.codeSnippets.find(s => s.lang === 'JavaScript' || s.lang === 'Python' || s.lang === 'Java');
+        const language = jsSnippet ? jsSnippet.lang : 'JavaScript';
+
+        // Get topics
+        const topics = question.topicTags.map(t => t.name).slice(0, 3);
+
+        // Extract examples from content (parse HTML)
+        const examples = this.extractExamples(question.content);
+
+        return {
+            title: question.title,
+            difficulty: question.difficulty,
+            language: language,
+            topics: topics,
+            problem: {
+                statement: this.cleanHTML(question.content).substring(0, 500) + '...',
+                examples: examples,
+                constraints: [],
+                hints: []
+            },
+            links: {
+                leetcode: `https://leetcode.com${challengeData.link}`
+            }
+        };
+    }
+
+    // Get random problem (fallback)
+    async getRandomProblem() {
+        const fallbackProblems = [
+            {
+                title: 'Two Sum',
+                difficulty: 'Easy',
+                language: 'JavaScript',
+                topics: ['Arrays', 'Hash Table'],
+                problem: {
+                    statement: 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.',
+                    examples: [{
+                        input: 'nums = [2,7,11,15], target = 9',
+                        output: '[0,1]',
+                        explanation: 'nums[0] + nums[1] == 9'
+                    }],
+                    constraints: ['2 <= nums.length <= 10^4'],
+                    hints: ['Use a hash map for O(n) solution']
+                },
+                links: {
+                    leetcode: 'https://leetcode.com/problems/two-sum/'
+                }
+            },
+            {
+                title: 'Reverse Linked List',
+                difficulty: 'Easy',
+                language: 'Python',
+                topics: ['Linked List', 'Recursion'],
+                problem: {
+                    statement: 'Given the head of a singly linked list, reverse the list, and return the reversed list.',
+                    examples: [{
+                        input: 'head = [1,2,3,4,5]',
+                        output: '[5,4,3,2,1]',
+                        explanation: 'List is reversed'
+                    }],
+                    constraints: ['0 <= length <= 5000'],
+                    hints: ['Use iterative or recursive approach']
+                },
+                links: {
+                    leetcode: 'https://leetcode.com/problems/reverse-linked-list/'
+                }
+            }
+        ];
+
+        return fallbackProblems[Math.floor(Math.random() * fallbackProblems.length)];
+    }
+
+    // Extract examples from HTML content
+    extractExamples(htmlContent) {
+        // Simple parsing (you can improve this)
+        const examples = [];
+        const exampleMatches = htmlContent.match(/<strong>Example \d+:<\/strong>[\s\S]*?<\/pre>/g);
+        
+        if (exampleMatches) {
+            for (let i = 0; i < Math.min(exampleMatches.length, 2); i++) {
+                examples.push({
+                    input: 'See LeetCode link',
+                    output: 'See LeetCode link',
+                    explanation: 'Check full problem on LeetCode'
+                });
+            }
+        }
+
+        return examples.length > 0 ? examples : [{
+            input: 'Example available on LeetCode',
+            output: 'See link below',
+            explanation: 'Visit LeetCode for full examples'
+        }];
+    }
+
+    // Clean HTML tags
+    cleanHTML(html) {
+        return html
+            .replace(/<[^>]*>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    // Post daily challenge
     async postDailyChallenge() {
         try {
             const dbConfig = await getConfig();
@@ -158,74 +244,82 @@ export class ChallengeScheduler {
             const channel = await this.client.channels.fetch(forumChannelId);
             
             if (!channel || !channel.isThreadOnly()) {
-                console.error('❌ Forum channel not found or invalid');
+                console.error('❌ Forum channel not found');
                 return;
             }
 
-            // Select random challenge template
-            const template = CHALLENGE_TEMPLATES[Math.floor(Math.random() * CHALLENGE_TEMPLATES.length)];
+            console.log('📥 Fetching challenge from LeetCode...');
+
+            // ✅ Fetch from LeetCode API
+            const template = await this.fetchLeetCodeProblem();
             
-            // Create challenge embed
+            console.log(`✅ Got challenge: ${template.title} (${template.difficulty})`);
+
+            // Create embed
             const embed = this.createChallengeEmbed(template);
             
-            // Get tags from forum channel
+            // ✅ AUTO-SELECT TAGS from forum
             const availableTags = channel.availableTags;
             const selectedTags = [];
             
-            // Add difficulty tag
+            // Find difficulty tag
             const difficultyTag = availableTags.find(t => 
                 t.name.toLowerCase() === template.difficulty.toLowerCase()
             );
             if (difficultyTag) {
                 selectedTags.push(difficultyTag.id);
+                console.log(`✅ Tag: ${template.difficulty}`);
             }
             
-            // Add topic tags (maximum 2 more tags)
-            for (const topic of template.topics.slice(0, 2)) {
+            // Find language tag
+            const langTag = availableTags.find(t => 
+                t.name.toLowerCase() === template.language.toLowerCase()
+            );
+            if (langTag) {
+                selectedTags.push(langTag.id);
+                console.log(`✅ Tag: ${template.language}`);
+            }
+            
+            // Find topic tags
+            for (const topic of template.topics) {
+                if (selectedTags.length >= 5) break;
+                
                 const topicTag = availableTags.find(t => 
-                    t.name.toLowerCase() === topic.toLowerCase() ||
                     t.name.toLowerCase().includes(topic.toLowerCase())
                 );
                 if (topicTag && !selectedTags.includes(topicTag.id)) {
                     selectedTags.push(topicTag.id);
-                }
-            }
-            
-            // If no topic tags found, try to add language/category tags
-            if (selectedTags.length < 3) {
-                // Try to find JavaScript, Python, etc tags
-                const langTags = ['javascript', 'python', 'java', 'c++', 'algorithms', 'data structures'];
-                for (const lang of langTags) {
-                    if (selectedTags.length >= 5) break; // Discord max is 5 tags
-                    const langTag = availableTags.find(t => 
-                        t.name.toLowerCase().includes(lang)
-                    );
-                    if (langTag && !selectedTags.includes(langTag.id)) {
-                        selectedTags.push(langTag.id);
-                    }
+                    console.log(`✅ Tag: ${topic}`);
                 }
             }
 
-            console.log(`📌 Selected ${selectedTags.length} tags for challenge`);
+            if (selectedTags.length < 2) {
+                console.error('❌ Not enough tags found!');
+                return;
+            }
 
-            // Create forum post (thread) with tags
+            // Create buttons
+            const buttons = this.createChallengeButtons(template);
+
+            // Post challenge
             const thread = await channel.threads.create({
-                name: `🧩 ${template.title}`,
+                name: `🧩 ${template.title} [${template.difficulty}]`,
                 message: {
                     embeds: [embed],
-                    components: this.createChallengeButtons(template)
+                    components: buttons
                 },
-                appliedTags: selectedTags.slice(0, 5), // Max 5 tags
-                autoArchiveDuration: 1440 // 24 hours
+                appliedTags: selectedTags,
+                autoArchiveDuration: 1440
             });
 
-            console.log(`✅ Posted daily challenge: ${template.title} with ${selectedTags.length} tags`);
+            console.log(`✅ Posted: ${template.title}`);
 
             // Save to database
-            const challenge = new Challenge({
+            await Challenge.create({
                 title: template.title,
                 description: template.problem.statement,
                 difficulty: template.difficulty,
+                language: template.language,
                 problem: template.problem,
                 links: template.links,
                 topics: template.topics,
@@ -237,76 +331,54 @@ export class ChallengeScheduler {
                 status: 'posted'
             });
 
-            await challenge.save();
-            console.log('✅ Challenge saved to database');
-
         } catch (error) {
-            console.error('❌ Error posting daily challenge:', error);
-            console.error('   Error details:', error.message);
-            console.error('   Stack:', error.stack);
+            console.error('❌ Error posting challenge:', error);
         }
     }
 
-    // Create challenge embed
     createChallengeEmbed(template) {
         const difficultyColors = {
-            easy: 0x57F287,
-            medium: 0xFEE75C,
-            difficult: 0xED4245
+            'Easy': 0x57F287,
+            'Medium': 0xFEE75C,
+            'Hard': 0xED4245
         };
 
         const difficultyEmojis = {
-            easy: '🟢',
-            medium: '🟡',
-            difficult: '🔴'
+            'Easy': '🟢',
+            'Medium': '🟡',
+            'Hard': '🔴'
         };
 
         const embed = new EmbedBuilder()
-            .setColor(difficultyColors[template.difficulty])
+            .setColor(difficultyColors[template.difficulty] || 0x370080)
             .setTitle(`${difficultyEmojis[template.difficulty]} ${template.title}`)
-            .setDescription(`**Difficulty:** ${template.difficulty.toUpperCase()}\n**Topics:** ${template.topics.join(', ')}\n\n**Problem Statement:**\n${template.problem.statement}`)
+            .setDescription(
+                `**Difficulty:** ${template.difficulty}\n` +
+                `**Language:** ${template.language}\n` +
+                `**Topics:** ${template.topics.join(', ')}\n\n` +
+                `**Problem:**\n${template.problem.statement}`
+            )
+            .setFooter({ text: '🏆 From LeetCode • Solve and showcase your skills!' })
             .setTimestamp();
 
-        // Add examples
-        if (template.problem.examples && template.problem.examples.length > 0) {
+        // Add examples if available
+        if (template.problem.examples?.length > 0) {
             const examplesText = template.problem.examples.map((ex, i) => 
-                `**Example ${i + 1}:**\n\`\`\`\nInput: ${ex.input}\nOutput: ${ex.output}\n\`\`\`\n*${ex.explanation}*`
+                `**Example ${i + 1}:**\n\`\`\`\nInput: ${ex.input}\nOutput: ${ex.output}\n\`\`\`${ex.explanation ? `\n*${ex.explanation}*` : ''}`
             ).join('\n\n');
             
-            embed.addFields({ name: '💡 Examples', value: examplesText, inline: false });
+            embed.addFields({ name: '💡 Examples', value: examplesText.substring(0, 1000), inline: false });
         }
-
-        // Add constraints
-        if (template.problem.constraints && template.problem.constraints.length > 0) {
-            embed.addFields({ 
-                name: '⚙️ Constraints', 
-                value: template.problem.constraints.map(c => `• ${c}`).join('\n'), 
-                inline: false 
-            });
-        }
-
-        // Add hints
-        if (template.problem.hints && template.problem.hints.length > 0) {
-            embed.addFields({ 
-                name: '💭 Hints', 
-                value: template.problem.hints.map((h, i) => `${i + 1}. ${h}`).join('\n'), 
-                inline: false 
-            });
-        }
-
-        embed.setFooter({ 
-            text: '🏆 Solve this challenge and showcase your skills!' 
-        });
 
         return embed;
     }
 
-    // Create challenge buttons with external links
     createChallengeButtons(template) {
-        const buttons = [];
+        const row = new ActionRowBuilder();
 
+        // LeetCode link
         if (template.links.leetcode) {
-            buttons.push(
+            row.addComponents(
                 new ButtonBuilder()
                     .setLabel('Solve on LeetCode')
                     .setStyle(ButtonStyle.Link)
@@ -315,36 +387,25 @@ export class ChallengeScheduler {
             );
         }
 
-        if (template.links.codeforces) {
-            buttons.push(
-                new ButtonBuilder()
-                    .setLabel('Solve on CodeForces')
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(template.links.codeforces)
-                    .setEmoji('🔗')
-            );
-        }
+        // AI Hint button
+        row.addComponents(
+            new ButtonBuilder()
+                .setCustomId(`challenge_ai_hint_${Date.now()}`)
+                .setLabel('Get AI Hint')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🤖')
+        );
 
-        if (template.links.hackerrank) {
-            buttons.push(
-                new ButtonBuilder()
-                    .setLabel('Solve on HackerRank')
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(template.links.hackerrank)
-                    .setEmoji('🔗')
-            );
-        }
-
-        return buttons.length > 0 ? [new ActionRowBuilder().addComponents(...buttons)] : [];
+        return [row];
     }
 }
 
-// Export singleton instance
+// Export
 let schedulerInstance = null;
 
 export function initChallengeScheduler(client) {
     if (!schedulerInstance) {
-        schedulerInstance = new ChallengeScheduler(client);
+        schedulerInstance = new LeetCodeChallengeScheduler(client);
         schedulerInstance.start();
     }
     return schedulerInstance;
@@ -352,4 +413,45 @@ export function initChallengeScheduler(client) {
 
 export function getChallengeScheduler() {
     return schedulerInstance;
+}
+
+// AI Hint Handler
+export async function handleChallengeAIHint(interaction) {
+    try {
+        await interaction.deferReply({ ephemeral: true });
+
+        if (!aiManager.isAvailable()) {
+            return await interaction.editReply({
+                content: '❌ AI not configured'
+            });
+        }
+
+        const thread = interaction.channel;
+        const firstMessage = await thread.fetchStarterMessage();
+        const embed = firstMessage?.embeds[0];
+        
+        const title = embed?.title?.replace(/^🟢|🟡|🔴/, '').trim();
+        const description = embed?.description || '';
+
+        const hint = await aiManager.request(
+            'code_explanation',
+            'You are a helpful coding mentor. Give hints without revealing the full solution.',
+            `Give me a subtle hint for this problem:\n\n${title}\n\n${description}`
+        );
+
+        await interaction.editReply({
+            embeds: [{
+                color: 0x4A90E2,
+                title: '🤖 AI Hint',
+                description: hint.content,
+                footer: { text: `Powered by ${hint.model} • Keep thinking! 💪` }
+            }]
+        });
+
+    } catch (error) {
+        console.error('❌ AI hint error:', error);
+        await interaction.editReply({
+            content: '❌ Failed to generate hint.'
+        });
+    }
 }

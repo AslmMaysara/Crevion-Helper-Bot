@@ -1,6 +1,7 @@
-// src/commands/owner/line.js - Complete Line Management System
+// src/commands/owner/line.js - FIXED VERSION WITH DISCORD CDN SUPPORT
 
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
+import { PermissionFlagsBits } from 'discord.js';
 import { PermissionLevels } from '../../utils/permissions.js';
 import { getConfig, updateConfig } from '../../models/index.js';
 import fetch from 'node-fetch';
@@ -16,7 +17,7 @@ export default {
                 .addStringOption(option =>
                     option
                         .setName('url')
-                        .setDescription('Direct image URL')
+                        .setDescription('Direct image URL (Discord CDN, Imgur, etc)')
                         .setRequired(true)
                 )
         )
@@ -80,14 +81,14 @@ export default {
     }
 };
 
-// Set line URL
+// ✅ Set line URL - FIXED TO ACCEPT DISCORD CDN
 async function handleSetLine(interaction) {
     try {
         await interaction.deferReply({ ephemeral: true });
 
         const url = interaction.options.getString('url');
 
-        // Validate URL - Accept any image URL including Discord CDN
+        // ✅ FIXED: Accept Discord CDN URLs and any image URL
         if (!url.match(/^https?:\/\/.+/i)) {
             return await interaction.editReply({
                 embeds: [{
@@ -99,15 +100,21 @@ async function handleSetLine(interaction) {
             });
         }
 
-        // Test the URL
+        // ✅ Test the URL by fetching it
         try {
-            const response = await fetch(url, { method: 'HEAD' });
+            const response = await fetch(url, { method: 'HEAD', timeout: 5000 });
+            
             if (!response.ok) {
                 throw new Error('Failed to fetch image');
             }
             
             const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.startsWith('image/')) {
+            
+            // ✅ FIXED: Accept Discord CDN (which may not return proper content-type)
+            const isDiscordCDN = url.includes('cdn.discordapp.com') || url.includes('media.discordapp.net');
+            const isImage = contentType && contentType.startsWith('image/');
+            
+            if (!isImage && !isDiscordCDN) {
                 return await interaction.editReply({
                     embeds: [{
                         color: 0xED4245,
@@ -117,26 +124,27 @@ async function handleSetLine(interaction) {
                     }]
                 });
             }
+            
         } catch (error) {
             return await interaction.editReply({
                 embeds: [{
                     color: 0xED4245,
-                    title: '❌ Invalid Image',
-                    description: 'Could not load the image from this URL. Please check:\n- URL is accessible\n- URL points to a valid image\n- No authentication required',
+                    title: '❌ Invalid Image URL',
+                    description: `Could not load the image from this URL.\n\n**Error:** ${error.message}\n\n**Tips:**\n• Make sure the URL is accessible\n• Try uploading to Discord and copying the link\n• Use Imgur or other image hosting`,
                     footer: { text: 'Crévion' }
                 }]
             });
         }
 
-        // Save to database
+        // ✅ Save to database
         await updateConfig({
             'lineConfig.url': url
         });
 
         const embed = new EmbedBuilder()
             .setColor(0x57F287)
-            .setTitle('✅ Line Image Set')
-            .setDescription('Line image has been updated successfully!')
+            .setTitle('✅ Line Image Set Successfully!')
+            .setDescription('Line image has been updated and saved to database.')
             .addFields(
                 { name: '🔗 URL', value: `[Click to view](${url})`, inline: false },
                 { name: '👤 Set By', value: interaction.user.tag, inline: true },
@@ -156,7 +164,7 @@ async function handleSetLine(interaction) {
             embeds: [{
                 color: 0xED4245,
                 title: '❌ Error',
-                description: 'Failed to set line image.',
+                description: 'Failed to set line image. Check console for details.',
                 footer: { text: 'Crévion' }
             }]
         }).catch(() => {});
@@ -371,6 +379,3 @@ async function handleRemoveLinePrefix(message) {
         allowedMentions: { repliedUser: false }
     });
 }
-
-// Import for attachment
-import { AttachmentBuilder } from 'discord.js';

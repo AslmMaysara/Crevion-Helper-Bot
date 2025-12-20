@@ -1,17 +1,17 @@
-// src/commands/general/ai.js - AI Slash Commands
+// src/commands/general/ai.js - UPDATED with Task-Optimized AI Selection
 
-import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { PermissionLevels } from '../../utils/permissions.js';
-import { callOpenAI, SYSTEM_PROMPTS } from '../../events/aiAssistant.js';
+import { aiManager, SYSTEM_PROMPTS } from '../../utils/aiManager.js';
 
 export default {
     data: new SlashCommandBuilder()
         .setName('ai')
-        .setDescription('AI-powered assistance for developers, designers, and creators')
+        .setDescription('AI-powered assistance (DeepSeek + Groq)')
         .addSubcommand(sub =>
             sub
                 .setName('code')
-                .setDescription('Get help writing code')
+                .setDescription('Generate code (Optimized: Groq)')
                 .addStringOption(opt =>
                     opt
                         .setName('request')
@@ -35,18 +35,18 @@ export default {
         .addSubcommand(sub =>
             sub
                 .setName('explain')
-                .setDescription('Explain a programming concept or code')
+                .setDescription('Explain code/concept (Optimized: DeepSeek)')
                 .addStringOption(opt =>
                     opt
                         .setName('topic')
-                        .setDescription('What do you want explained?')
+                        .setDescription('What to explain?')
                         .setRequired(true)
                 )
         )
         .addSubcommand(sub =>
             sub
                 .setName('debug')
-                .setDescription('Help debug code or fix errors')
+                .setDescription('Debug code (Optimized: DeepSeek)')
                 .addStringOption(opt =>
                     opt
                         .setName('code')
@@ -57,7 +57,7 @@ export default {
         .addSubcommand(sub =>
             sub
                 .setName('design')
-                .setDescription('Get UI/UX design advice')
+                .setDescription('Get UI/UX design advice (Optimized: Groq)')
                 .addStringOption(opt =>
                     opt
                         .setName('request')
@@ -68,7 +68,7 @@ export default {
         .addSubcommand(sub =>
             sub
                 .setName('review')
-                .setDescription('Get code review and suggestions')
+                .setDescription('Code review (Optimized: DeepSeek)')
                 .addStringOption(opt =>
                     opt
                         .setName('code')
@@ -79,11 +79,22 @@ export default {
         .addSubcommand(sub =>
             sub
                 .setName('optimize')
-                .setDescription('Optimize code for better performance')
+                .setDescription('Optimize code (Optimized: DeepSeek)')
                 .addStringOption(opt =>
                     opt
                         .setName('code')
                         .setDescription('Code to optimize')
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName('ask')
+                .setDescription('Ask anything (Auto-selects best AI)')
+                .addStringOption(opt =>
+                    opt
+                        .setName('question')
+                        .setDescription('Your question')
                         .setRequired(true)
                 )
         ),
@@ -92,6 +103,19 @@ export default {
 
     async execute(interaction, client) {
         const subcommand = interaction.options.getSubcommand();
+
+        // Check AI availability
+        if (!aiManager.isAvailable()) {
+            return await interaction.reply({
+                embeds: [{
+                    color: 0xED4245,
+                    title: '⚠️ AI Not Configured',
+                    description: 'No AI APIs are configured. Contact bot owner.',
+                    footer: { text: 'Crévion AI' }
+                }],
+                ephemeral: true
+            });
+        }
 
         if (subcommand === 'code') {
             await handleCode(interaction);
@@ -105,11 +129,13 @@ export default {
             await handleReview(interaction);
         } else if (subcommand === 'optimize') {
             await handleOptimize(interaction);
+        } else if (subcommand === 'ask') {
+            await handleAsk(interaction);
         }
     }
 };
 
-// Write Code
+// 💻 Generate Code - Uses GROQ (faster)
 async function handleCode(interaction) {
     try {
         await interaction.deferReply();
@@ -126,130 +152,127 @@ Requirements:
 - Best practices
 - Modern syntax`;
 
-        const response = await callOpenAI(SYSTEM_PROMPTS.code, prompt);
+        const response = await aiManager.request(
+            'code_generation',
+            SYSTEM_PROMPTS.code_generation,
+            prompt
+        );
 
         const embed = new EmbedBuilder()
             .setColor(0x370080)
             .setTitle('💻 Code Generated')
-            .setDescription(response.substring(0, 4000))
+            .setDescription(response.content.substring(0, 4000))
             .addFields(
                 { name: '🔤 Language', value: language, inline: true },
-                { name: '📝 Request', value: request.substring(0, 100), inline: true }
+                { name: '🤖 AI Model', value: response.model, inline: true }
             )
-            .setFooter({ text: 'Crévion AI • Powered by OpenAI' })
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
 
-        // If response is too long, send as file
-        if (response.length > 4000) {
-            const buffer = Buffer.from(response, 'utf-8');
+        // Send as file if too long
+        if (response.content.length > 4000) {
+            const buffer = Buffer.from(response.content, 'utf-8');
             const attachment = new AttachmentBuilder(buffer, { 
                 name: `code.${getFileExtension(language)}` 
             });
             await interaction.followUp({ 
-                content: '📎 **Full code attached:**', 
+                content: '📎 **Full code:**', 
                 files: [attachment] 
             });
         }
 
     } catch (error) {
         console.error('❌ AI Code Error:', error);
-        await interaction.editReply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to generate code. Please try again.',
-                footer: { text: 'Crévion AI' }
-            }]
-        }).catch(() => {});
+        await handleError(interaction, error);
     }
 }
 
-// Explain Concept
+// 📚 Explain - Uses DEEPSEEK (better explanations)
 async function handleExplain(interaction) {
     try {
         await interaction.deferReply();
 
         const topic = interaction.options.getString('topic');
 
-        const prompt = `Explain this programming concept clearly and thoroughly: ${topic}
+        const prompt = `Explain this clearly and thoroughly: ${topic}
 
 Include:
 - Simple explanation
-- Code examples
+- Code examples if relevant
 - Common use cases
 - Best practices
-- Common pitfalls`;
+- Common mistakes to avoid`;
 
-        const response = await callOpenAI(SYSTEM_PROMPTS.explain, prompt);
+        const response = await aiManager.request(
+            'code_explanation',
+            SYSTEM_PROMPTS.code_explanation,
+            prompt
+        );
 
         const embed = new EmbedBuilder()
             .setColor(0x57F287)
             .setTitle(`📚 Explaining: ${topic}`)
-            .setDescription(response.substring(0, 4000))
-            .setFooter({ text: 'Crévion AI • Powered by OpenAI' })
+            .setDescription(response.content.substring(0, 4000))
+            .addFields(
+                { name: '🤖 AI Model', value: response.model, inline: true }
+            )
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
         console.error('❌ AI Explain Error:', error);
-        await interaction.editReply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to explain. Please try again.',
-                footer: { text: 'Crévion AI' }
-            }]
-        }).catch(() => {});
+        await handleError(interaction, error);
     }
 }
 
-// Debug Code
+// 🔍 Debug - Uses DEEPSEEK (best at finding bugs)
 async function handleDebug(interaction) {
     try {
         await interaction.deferReply();
 
         const code = interaction.options.getString('code');
 
-        const prompt = `Debug this code and find issues:
+        const prompt = `Debug this code and find all issues:
 
 \`\`\`
 ${code}
 \`\`\`
 
 Provide:
-1. Identified issues
-2. Explanations
+1. All identified issues
+2. Why they occur
 3. Fixed code
 4. Prevention tips`;
 
-        const response = await callOpenAI(SYSTEM_PROMPTS.code, prompt);
+        const response = await aiManager.request(
+            'debugging',
+            SYSTEM_PROMPTS.debugging,
+            prompt
+        );
 
         const embed = new EmbedBuilder()
             .setColor(0xFEE75C)
             .setTitle('🔍 Debug Results')
-            .setDescription(response.substring(0, 4000))
-            .setFooter({ text: 'Crévion AI • Powered by OpenAI' })
+            .setDescription(response.content.substring(0, 4000))
+            .addFields(
+                { name: '🤖 AI Model', value: response.model, inline: true }
+            )
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
         console.error('❌ AI Debug Error:', error);
-        await interaction.editReply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to debug. Please try again.',
-                footer: { text: 'Crévion AI' }
-            }]
-        }).catch(() => {});
+        await handleError(interaction, error);
     }
 }
 
-// Design Advice
+// 🎨 Design - Uses GROQ (fast and creative)
 async function handleDesign(interaction) {
     try {
         await interaction.deferReply();
@@ -260,36 +283,36 @@ async function handleDesign(interaction) {
 
 Include:
 - Design recommendations
-- Color scheme suggestions (hex codes)
+- Color schemes (hex codes)
 - Typography suggestions
 - Layout ideas
-- Accessibility considerations`;
+- Accessibility tips`;
 
-        const response = await callOpenAI(SYSTEM_PROMPTS.design, prompt);
+        const response = await aiManager.request(
+            'design',
+            SYSTEM_PROMPTS.design,
+            prompt
+        );
 
         const embed = new EmbedBuilder()
             .setColor(0xFF6B6B)
             .setTitle('🎨 Design Advice')
-            .setDescription(response.substring(0, 4000))
-            .setFooter({ text: 'Crévion AI • Powered by OpenAI' })
+            .setDescription(response.content.substring(0, 4000))
+            .addFields(
+                { name: '🤖 AI Model', value: response.model, inline: true }
+            )
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
         console.error('❌ AI Design Error:', error);
-        await interaction.editReply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to generate design advice. Please try again.',
-                footer: { text: 'Crévion AI' }
-            }]
-        }).catch(() => {});
+        await handleError(interaction, error);
     }
 }
 
-// Code Review
+// 📋 Review - Uses DEEPSEEK (detailed reviews)
 async function handleReview(interaction) {
     try {
         await interaction.deferReply();
@@ -307,33 +330,33 @@ Provide:
 2. Best practices evaluation
 3. Security considerations
 4. Performance suggestions
-5. Refactoring recommendations`;
+5. Refactoring ideas`;
 
-        const response = await callOpenAI(SYSTEM_PROMPTS.code, prompt);
+        const response = await aiManager.request(
+            'code_review',
+            SYSTEM_PROMPTS.code_explanation,
+            prompt
+        );
 
         const embed = new EmbedBuilder()
             .setColor(0x4A90E2)
             .setTitle('📋 Code Review')
-            .setDescription(response.substring(0, 4000))
-            .setFooter({ text: 'Crévion AI • Powered by OpenAI' })
+            .setDescription(response.content.substring(0, 4000))
+            .addFields(
+                { name: '🤖 AI Model', value: response.model, inline: true }
+            )
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
         console.error('❌ AI Review Error:', error);
-        await interaction.editReply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to review code. Please try again.',
-                footer: { text: 'Crévion AI' }
-            }]
-        }).catch(() => {});
+        await handleError(interaction, error);
     }
 }
 
-// Optimize Code
+// ⚡ Optimize - Uses DEEPSEEK (best optimizer)
 async function handleOptimize(interaction) {
     try {
         await interaction.deferReply();
@@ -351,33 +374,84 @@ Provide:
 2. Bottlenecks identified
 3. Optimized version
 4. Explanation of improvements
-5. Benchmark comparisons if applicable`;
+5. Time/space complexity`;
 
-        const response = await callOpenAI(SYSTEM_PROMPTS.code, prompt);
+        const response = await aiManager.request(
+            'optimization',
+            SYSTEM_PROMPTS.optimization,
+            prompt
+        );
 
         const embed = new EmbedBuilder()
             .setColor(0x00D9FF)
             .setTitle('⚡ Code Optimization')
-            .setDescription(response.substring(0, 4000))
-            .setFooter({ text: 'Crévion AI • Powered by OpenAI' })
+            .setDescription(response.content.substring(0, 4000))
+            .addFields(
+                { name: '🤖 AI Model', value: response.model, inline: true }
+            )
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
         console.error('❌ AI Optimize Error:', error);
-        await interaction.editReply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to optimize code. Please try again.',
-                footer: { text: 'Crévion AI' }
-            }]
-        }).catch(() => {});
+        await handleError(interaction, error);
     }
 }
 
-// Helper function
+// 💬 Ask - Auto-selects best AI
+async function handleAsk(interaction) {
+    try {
+        await interaction.deferReply();
+
+        const question = interaction.options.getString('question');
+
+        const response = await aiManager.request(
+            'general',
+            SYSTEM_PROMPTS.general,
+            question
+        );
+
+        const embed = new EmbedBuilder()
+            .setColor(0x370080)
+            .setTitle('💬 AI Response')
+            .setDescription(response.content.substring(0, 4000))
+            .addFields(
+                { name: '🤖 AI Model', value: response.model, inline: true }
+            )
+            .setFooter({ text: `Crévion AI • Powered by ${response.model}` })
+            .setTimestamp();
+
+        await interaction.editReply({ embeds: [embed] });
+
+    } catch (error) {
+        console.error('❌ AI Ask Error:', error);
+        await handleError(interaction, error);
+    }
+}
+
+// Error handler
+async function handleError(interaction, error) {
+    const errorEmbed = {
+        color: 0xED4245,
+        title: '❌ AI Error',
+        description: 'Failed to get AI response. Please try again.',
+        footer: { text: 'Crévion AI' }
+    };
+
+    try {
+        if (interaction.deferred) {
+            await interaction.editReply({ embeds: [errorEmbed] });
+        } else {
+            await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        }
+    } catch (e) {
+        console.error('Failed to send error message:', e);
+    }
+}
+
+// Helper
 function getFileExtension(language) {
     const extensions = {
         javascript: 'js',
@@ -389,5 +463,3 @@ function getFileExtension(language) {
     };
     return extensions[language] || 'txt';
 }
-
-import { AttachmentBuilder } from 'discord.js';

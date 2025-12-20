@@ -1,60 +1,13 @@
-// src/events/aiAssistant.js - Complete OpenAI System
+// src/events/aiAssistant.js - UPDATED with Dual AI System
 
 import { Events } from 'discord.js';
-import OpenAI from 'openai';
+import { aiManager, SYSTEM_PROMPTS, detectTaskType } from '../utils/aiManager.js';
 
 const AI_CHANNEL_ID = '1437119111221084261';
 
-// Initialize OpenAI
-let openai = null;
-
 // Store conversations per user
 const conversations = new Map();
-
-// System prompts for different use cases
-const SYSTEM_PROMPTS = {
-    general: `You are Crevion AI, an elite AI assistant for creative developers and designers.
-
-**Core Expertise:**
-- 💻 Programming: JavaScript, TypeScript, Python, React, Node.js, Discord.js
-- 🎨 Design: UI/UX, Color Theory, Figma, Adobe Suite, Branding
-- ✂️ Video Editing: Premiere Pro, After Effects
-- 🤖 AI/ML: APIs, Automation, GPT models
-
-**Response Style:**
-- Be extremely helpful and precise
-- Provide working code examples
-- Use emojis for clarity
-- Keep responses focused and actionable
-- Be encouraging and supportive`,
-
-    code: `You are an expert programmer. Provide clean, well-commented, production-ready code.
-
-**Guidelines:**
-- Always include proper error handling
-- Follow best practices and design patterns
-- Explain complex logic with comments
-- Suggest optimizations when relevant
-- Use modern syntax and features`,
-
-    design: `You are an expert UI/UX designer. Provide actionable design advice.
-
-**Guidelines:**
-- Focus on user experience and accessibility
-- Suggest color schemes with hex codes
-- Provide typography recommendations
-- Consider modern design trends
-- Give practical implementation tips`,
-
-    explain: `You are a patient teacher. Explain concepts clearly and thoroughly.
-
-**Guidelines:**
-- Start with simple explanations
-- Use analogies and examples
-- Break down complex topics
-- Provide step-by-step guides
-- Encourage questions and learning`
-};
+const MAX_HISTORY = 10; // Keep last 10 messages
 
 export default {
     name: Events.MessageCreate,
@@ -67,23 +20,17 @@ export default {
         const userId = message.author.id;
 
         try {
-            // Initialize OpenAI if not done
-            if (!openai) {
-                const apiKey = process.env.OPEN_AI_API_KEY;
-                if (!apiKey) {
-                    return await message.reply({
-                        embeds: [{
-                            color: 0xED4245,
-                            title: '⚠️ AI Not Configured',
-                            description: '**OpenAI API key missing!**\n\nAdd to `.env`:\n```\nOPEN_AI_API_KEY=sk-proj-...\n```',
-                            footer: { text: 'Crévion AI' }
-                        }],
-                        allowedMentions: { repliedUser: false }
-                    });
-                }
-                
-                openai = new OpenAI({ apiKey });
-                console.log('✅ OpenAI initialized');
+            // Check if AI is available
+            if (!aiManager.isAvailable()) {
+                return await message.reply({
+                    embeds: [{
+                        color: 0xED4245,
+                        title: '⚠️ AI Not Configured',
+                        description: '**No AI APIs configured!**\n\nAdd to `.env`:\n```\nGROQ_API_KEY=your_key\nDEEPSEEK_API_KEY=your_key\n```',
+                        footer: { text: 'Crévion AI' }
+                    }],
+                    allowedMentions: { repliedUser: false }
+                });
             }
 
             await message.channel.sendTyping();
@@ -94,44 +41,45 @@ export default {
             }
             const history = conversations.get(userId);
 
-            // Limit history to last 10 messages
-            if (history.length > 10) {
+            // Limit history
+            if (history.length > MAX_HISTORY) {
                 history.splice(0, 2);
             }
 
             const userMessage = message.content.trim();
 
-            console.log(`🤖 [AI] Processing: ${message.author.tag}`);
+            console.log(`🤖 [AI] ${message.author.tag}: ${userMessage.substring(0, 50)}...`);
 
-            // Call OpenAI API
-            const completion = await openai.chat.completions.create({
-                model: "gpt-4o-mini", // Fast and cheap
-                messages: [
-                    { role: "system", content: SYSTEM_PROMPTS.general },
-                    ...history,
-                    { role: "user", content: userMessage }
-                ],
-                max_tokens: 2000,
-                temperature: 0.7
-            });
+            // Detect task type
+            const taskType = detectTaskType(userMessage);
+            console.log(`🎯 Task type detected: ${taskType}`);
 
-            const aiResponse = completion.choices[0].message.content;
+            // Get appropriate system prompt
+            const systemPrompt = SYSTEM_PROMPTS[taskType] || SYSTEM_PROMPTS.general;
 
-            if (!aiResponse) {
+            // Make AI request
+            const response = await aiManager.request(
+                taskType,
+                systemPrompt,
+                userMessage,
+                history
+            );
+
+            if (!response.content) {
                 throw new Error('No response from AI');
             }
 
             // Update history
             history.push(
                 { role: "user", content: userMessage },
-                { role: "assistant", content: aiResponse }
+                { role: "assistant", content: response.content }
             );
 
-            console.log(`✅ [AI] Response: ${aiResponse.length} chars`);
+            console.log(`✅ [AI] ${response.model} responded: ${response.content.length} chars`);
 
             // Send response (split if too long)
-            if (aiResponse.length > 2000) {
-                const chunks = aiResponse.match(/[\s\S]{1,1900}/g) || [];
+            if (response.content.length > 2000) {
+                const chunks = response.content.match(/[\s\S]{1,1900}/g) || [];
                 for (let i = 0; i < Math.min(chunks.length, 3); i++) {
                     await message.reply({
                         content: chunks[i],
@@ -141,9 +89,17 @@ export default {
                         await new Promise(r => setTimeout(r, 1000));
                     }
                 }
+                
+                // Add footer with AI model used
+                if (chunks.length > 3) {
+                    await message.channel.send({
+                        content: `*... response truncated. Powered by ${response.model} 🤖*`,
+                        allowedMentions: { repliedUser: false }
+                    });
+                }
             } else {
                 await message.reply({
-                    content: aiResponse,
+                    content: response.content + `\n\n*- ${response.model} 🤖*`,
                     allowedMentions: { repliedUser: false }
                 });
             }
@@ -153,12 +109,12 @@ export default {
             
             let errorMsg = 'Something went wrong. Please try again.';
             
-            if (error.code === 'insufficient_quota') {
-                errorMsg = '⚠️ **API Quota Exceeded**\n\nThe OpenAI API quota has been reached. Please check your billing at [platform.openai.com](https://platform.openai.com/account/billing)';
-            } else if (error.status === 401) {
-                errorMsg = '🔑 **Invalid API Key**\n\nThe OpenAI API key is invalid. Please check your `.env` file.';
-            } else if (error.status === 429) {
-                errorMsg = '⏰ **Rate Limit**\n\nToo many requests. Please wait a moment.';
+            if (error.message.includes('API error')) {
+                errorMsg = '⚠️ **AI Service Unavailable**\n\nThe AI service is temporarily unavailable. Try again in a moment.';
+            } else if (error.message.includes('timeout')) {
+                errorMsg = '⏰ **Request Timeout**\n\nThe AI took too long to respond. Try a simpler question.';
+            } else if (error.message.includes('Both AIs failed')) {
+                errorMsg = '❌ **All AI Services Failed**\n\nBoth Groq and DeepSeek are unavailable. Try again later.';
             }
 
             await message.reply({
@@ -174,29 +130,23 @@ export default {
     }
 };
 
-// Helper function for slash commands
-export async function callOpenAI(systemPrompt, userMessage, conversationHistory = []) {
+// Helper for slash commands
+export async function callAI(taskType, systemPrompt, userMessage, conversationHistory = []) {
     try {
-        if (!openai) {
-            const apiKey = process.env.OPEN_AI_API_KEY;
-            if (!apiKey) throw new Error('OpenAI API key not configured');
-            openai = new OpenAI({ apiKey });
+        if (!aiManager.isAvailable()) {
+            throw new Error('No AI APIs configured');
         }
 
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: systemPrompt },
-                ...conversationHistory,
-                { role: "user", content: userMessage }
-            ],
-            max_tokens: 2000,
-            temperature: 0.7
-        });
+        const response = await aiManager.request(
+            taskType,
+            systemPrompt,
+            userMessage,
+            conversationHistory
+        );
 
-        return completion.choices[0].message.content;
+        return response.content;
     } catch (error) {
-        console.error('❌ OpenAI Error:', error);
+        console.error('❌ AI Error:', error);
         throw error;
     }
 }
