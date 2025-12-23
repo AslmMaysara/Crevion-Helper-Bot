@@ -1,6 +1,6 @@
-// src/events/interactionCreate.js - COMPLETE FIX WITH PERMISSIONS DASHBOARD
+// src/events/interactionCreate.js - UPDATED FOR NEW DASHBOARD 🚀
 
-import { Events, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } from 'discord.js';
+import { Events, EmbedBuilder } from 'discord.js';
 import { getConfig } from '../models/index.js';
 import { handleAIButtons } from './aiAssistant.js';
 import { handleChallengeAIHint } from '../utils/challengeScheduler.js';
@@ -9,33 +9,173 @@ import {
     handlePermissionButtons, 
     handleAddRoleToLevel, 
     handleRemoveRoleFromLevel,
-    handleResetConfirm 
-} from '../commands/admin/permissions.js';
-import { PermissionLevels, getPermissionLevelName, getUserPermissionLevel, getCommandRequiredLevel } from '../utils/permissions.js';
+    handleResetConfirm,
+    handleLineAccessAdd,
+    handleLineAccessRemove
+} from '../commands/owner/permissions.js';
+import { PermissionLevels, getPermissionLevelName, getUserPermissionLevel } from '../utils/permissions.js';
 
 export default {
     name: Events.InteractionCreate,
     async execute(interaction, client) {
-        // Handle Select Menu
-        if (interaction.isStringSelectMenu()) {
-            await handleSelectMenu(interaction, client);
-            return;
-        }
-        
-        // Handle Buttons
-        if (interaction.isButton()) {
-            await handleButton(interaction, client);
-            return;
+        try {
+            // ═══════════════════════════════════════════════════════════════
+            // 🎯 SELECT MENUS
+            // ═══════════════════════════════════════════════════════════════
+            if (interaction.isStringSelectMenu()) {
+                await handleSelectMenu(interaction, client);
+                return;
+            }
+            
+            // ═══════════════════════════════════════════════════════════════
+            // 🔘 BUTTONS
+            // ═══════════════════════════════════════════════════════════════
+            if (interaction.isButton()) {
+                await handleButton(interaction, client);
+                return;
+            }
+
+        } catch (error) {
+            console.error('❌ Interaction error:', error);
+            
+            const errorEmbed = {
+                color: 0xED4245,
+                title: '❌ حدث خطأ',
+                description: 'فشل تنفيذ الأمر. حاول مرة تانية.',
+                footer: { text: 'Crévion' }
+            };
+
+            try {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+                } else if (interaction.deferred) {
+                    await interaction.editReply({ embeds: [errorEmbed] });
+                } else {
+                    await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
+                }
+            } catch (replyError) {
+                console.error('❌ Could not send error message:', replyError);
+            }
         }
     }
 };
 
-// 🎨 Handle Select Menu Interactions
+// ═══════════════════════════════════════════════════════════════
+// 🎯 HANDLE SELECT MENUS
+// ═══════════════════════════════════════════════════════════════
+
 async function handleSelectMenu(interaction, client) {
     const customId = interaction.customId;
     
-    // Help category select
+    // ───────────────────────────────────────────────────────────────
+    // 📚 HELP CATEGORY SELECT
+    // ───────────────────────────────────────────────────────────────
     if (customId === 'help_category') {
+        await handleHelpCategory(interaction, client);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // 🎛️ PERMISSIONS - Main Menu
+    // ───────────────────────────────────────────────────────────────
+    if (customId === 'perm_main_menu') {
+        await handlePermissionSelectMenu(interaction, client);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // 🎛️ PERMISSIONS - Select Level
+    // ───────────────────────────────────────────────────────────────
+    if (customId === 'perm_select_level') {
+        await handlePermissionSelectMenu(interaction, client);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // ➕ PERMISSIONS - Add Role to Level
+    // ───────────────────────────────────────────────────────────────
+    if (customId.startsWith('perm_add_role_')) {
+        const level = customId.replace('perm_add_role_', '');
+        const roleIds = interaction.values;
+        await handleAddRoleToLevel(interaction, level, roleIds);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // 🗑️ PERMISSIONS - Remove Role from Level
+    // ───────────────────────────────────────────────────────────────
+    if (customId.startsWith('perm_remove_role_')) {
+        const level = customId.replace('perm_remove_role_', '');
+        const roleIds = interaction.values;
+        await handleRemoveRoleFromLevel(interaction, level, roleIds);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // 📏 LINE ACCESS - Add Roles
+    // ───────────────────────────────────────────────────────────────
+    if (customId === 'perm_line_add') {
+        const roleIds = interaction.values;
+        await handleLineAccessAdd(interaction, roleIds);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // 📏 LINE ACCESS - Remove Roles
+    // ───────────────────────────────────────────────────────────────
+    if (customId === 'perm_line_remove') {
+        const roleIds = interaction.values;
+        await handleLineAccessRemove(interaction, roleIds);
+        return;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🔘 HANDLE BUTTONS
+// ═══════════════════════════════════════════════════════════════
+
+async function handleButton(interaction, client) {
+    const customId = interaction.customId;
+
+    // ───────────────────────────────────────────────────────────────
+    // ℹ️ BOT INFO BUTTON
+    // ───────────────────────────────────────────────────────────────
+    if (customId === 'bot_info') {
+        await handleBotInfo(interaction, client);
+        return;
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // 🤖 AI ASSISTANT BUTTONS
+    // ───────────────────────────────────────────────────────────────
+    if (customId.startsWith('clear_context_') || customId.startsWith('explain_more_')) {
+        await handleAIButtons(interaction);
+        return;
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // 🧩 CHALLENGE AI HINT BUTTON
+    // ───────────────────────────────────────────────────────────────
+    if (customId.startsWith('challenge_ai_hint_')) {
+        await handleChallengeAIHint(interaction);
+        return;
+    }
+    
+    // ───────────────────────────────────────────────────────────────
+    // 🎛️ PERMISSIONS DASHBOARD BUTTONS
+    // ───────────────────────────────────────────────────────────────
+    if (customId.startsWith('perm_')) {
+        await handlePermissionButton(interaction, client);
+        return;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 📚 HELP CATEGORY HANDLER
+// ═══════════════════════════════════════════════════════════════
+
+async function handleHelpCategory(interaction, client) {
+    try {
         const category = interaction.values[0];
         const member = await interaction.guild.members.fetch(interaction.user.id);
         const userLevel = await getUserPermissionLevel(member);
@@ -43,7 +183,6 @@ async function handleSelectMenu(interaction, client) {
         const commands = Array.from(client.commands.values()).filter(cmd => {
             const cmdCategory = getCommandCategory(cmd);
             const requiredLevel = cmd.permission !== undefined ? cmd.permission : PermissionLevels.EVERYONE;
-            
             return cmdCategory === category && userLevel >= requiredLevel;
         });
 
@@ -51,7 +190,7 @@ async function handleSelectMenu(interaction, client) {
             return await interaction.reply({
                 embeds: [{
                     color: 0xFEE75C,
-                    description: '⚠️ No commands found in this category that you have access to'
+                    description: '⚠️ لا توجد أوامر متاحة في هذا القسم'
                 }],
                 ephemeral: true
             });
@@ -60,210 +199,156 @@ async function handleSelectMenu(interaction, client) {
         const dbConfig = await getConfig();
         const defaultColor = parseInt(dbConfig?.embedSettings?.defaultColor?.replace('#', '') || '370080', 16);
 
-        const categoryEmbed = {
-            color: defaultColor,
-            title: `${getCategoryEmoji(category)} ${getCategoryName(category)}`,
-            description: `Here are all commands in the **${getCategoryName(category)}** category that you can use:`,
-            fields: commands.map(cmd => ({
-                name: `/${cmd.data.name}`,
-                value: `${cmd.data.description}\n**Permission:** ${getPermissionLevelName(cmd.permission || 0)}`,
-                inline: true
-            })),
-            thumbnail: { url: dbConfig?.embedSettings?.thumbnail },
-            footer: {
-                text: `${dbConfig?.embedSettings?.footer} | Use /help [command] for details`,
-                icon_url: dbConfig?.embedSettings?.footerIcon
-            },
-            timestamp: new Date()
-        };
+        const categoryEmbed = new EmbedBuilder()
+            .setColor(defaultColor)
+            .setTitle(`${getCategoryEmoji(category)} ${getCategoryName(category)}`)
+            .setDescription(`جميع الأوامر المتاحة في قسم **${getCategoryName(category)}**:`)
+            .addFields(
+                commands.map(cmd => ({
+                    name: `/${cmd.data.name}`,
+                    value: `${cmd.data.description}\n**الصلاحية:** ${getPermissionLevelName(cmd.permission || 0)}`,
+                    inline: true
+                }))
+            )
+            .setThumbnail(dbConfig?.embedSettings?.thumbnail)
+            .setFooter({
+                text: `${dbConfig?.embedSettings?.footer} | استخدم /help [command] للتفاصيل`,
+                iconURL: dbConfig?.embedSettings?.footerIcon
+            })
+            .setTimestamp();
 
         await interaction.reply({ embeds: [categoryEmbed], ephemeral: true });
-        return;
-    }
-    
-    // ✅ PERMISSIONS DASHBOARD - Select Level
-    if (customId === 'perm_select_level') {
-        await handlePermissionSelectMenu(interaction);
-        return;
-    }
-    
-    // ✅ PERMISSIONS - Add Role
-    if (customId.startsWith('perm_add_role_')) {
-        const level = customId.replace('perm_add_role_', '');
-        const roleIds = interaction.values;
-        await handleAddRoleToLevel(interaction, level, roleIds);
-        return;
-    }
-    
-    // ✅ PERMISSIONS - Remove Role
-    if (customId.startsWith('perm_remove_role_')) {
-        const level = customId.replace('perm_remove_role_', '');
-        const roleIds = interaction.values;
-        await handleRemoveRoleFromLevel(interaction, level, roleIds);
-        return;
-    }
-}
-
-// 🔘 Handle Button Interactions
-async function handleButton(interaction, client) {
-    const customId = interaction.customId;
-
-    try {
-        // Bot Info Button
-        if (customId === 'bot_info') {
-            await handleBotInfo(interaction, client);
-            return;
-        }
-
-        // AI Assistant Buttons
-        if (customId.startsWith('clear_context_') || customId.startsWith('explain_more_')) {
-            await handleAIButtons(interaction);
-            return;
-        }
-
-        // Challenge AI Hint Button
-        if (customId.startsWith('challenge_ai_hint_')) {
-            await handleChallengeAIHint(interaction);
-            return;
-        }
-        
-        // ✅ PERMISSIONS DASHBOARD BUTTONS
-        if (customId.startsWith('perm_')) {
-            // Manage owners, view all, reset, back
-            if (['perm_manage_owners', 'perm_view_all', 'perm_reset_all', 'perm_back_to_main'].includes(customId)) {
-                await handlePermissionButtons(interaction, client);
-                return;
-            }
-            
-            // Confirm reset
-            if (customId === 'perm_confirm_reset') {
-                await handleResetConfirm(interaction);
-                return;
-            }
-            
-            // Cancel reset
-            if (customId === 'perm_cancel_reset') {
-                await interaction.update({
-                    embeds: [{
-                        color: 0x57F287,
-                        title: '✅ Cancelled',
-                        description: 'Reset cancelled. No changes made.',
-                        footer: { text: 'Crévion' }
-                    }],
-                    components: []
-                });
-                return;
-            }
-        }
-
-        // Showcase buttons (if needed later)
-        if (customId.startsWith('copy_code_') || 
-            customId.startsWith('download_code_') ||
-            customId.startsWith('save_code_') ||
-            customId.startsWith('save_project_')) {
-            await handleShowcaseButtons(interaction);
-            return;
-        }
 
     } catch (error) {
-        console.error('❌ Button interaction error:', error);
+        console.error('❌ Help category error:', error);
         await interaction.reply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to process button action.',
-                footer: { text: 'Crévion' }
-            }],
+            content: '❌ فشل عرض الأوامر',
             ephemeral: true
         }).catch(() => {});
     }
 }
 
-// 🤖 Bot Info Handler
+// ═══════════════════════════════════════════════════════════════
+// ℹ️ BOT INFO HANDLER
+// ═══════════════════════════════════════════════════════════════
+
 async function handleBotInfo(interaction, client) {
     try {
         const dbConfig = await getConfig();
         const defaultColor = parseInt(dbConfig?.embedSettings?.defaultColor?.replace('#', '') || '370080', 16);
         
-        const infoEmbed = {
-            color: defaultColor,
-            author: {
+        const embed = new EmbedBuilder()
+            .setColor(defaultColor)
+            .setAuthor({
                 name: dbConfig?.botName || 'Crévion',
-                icon_url: dbConfig?.embedSettings?.thumbnail
-            },
-            title: `✨ ${dbConfig?.botName || 'Crévion'} - Bot Information`,
-            description: 'صنع بلمسة من الابداع خصيصا للمبدعين العرب\n\nأنا Crévion، بوت Discord مصمم خصيصًا لخدمة مجتمع Crevion. أقدم مجموعة متنوعة من الأوامر والميزات التي تساعد في إدارة السيرفر والتفاعل مع الأعضاء.',
-            fields: [
+                iconURL: dbConfig?.embedSettings?.thumbnail
+            })
+            .setTitle(`✨ ${dbConfig?.botName || 'Crévion'} - معلومات البوت`)
+            .setDescription('صنع بلمسة من الإبداع خصيصاً للمبدعين العرب\n\nبوت متطور لإدارة السيرفر ومساعدة المبدعين')
+            .addFields(
                 {
-                    name: '🎯 Features',
+                    name: '🎯 المميزات',
                     value: [
                         '🎨 أوامر إبداعية ومبتكرة',
                         '⚡ استجابة سريعة وموثوقة',
                         '🛡️ نظام إدارة قوي',
-                        '🤖 مساعد ذكاء اصطناعي (DeepSeek + Groq)',
+                        '🤖 مساعد ذكاء اصطناعي متطور',
                         '🎨 أدوات تصميم احترافية',
-                        '🧩 تحديات برمجية يومية من LeetCode',
+                        '🧩 تحديات برمجية يومية',
                         '📊 نظام إحصائيات متقدم'
                     ].join('\n'),
                     inline: false
                 },
                 {
-                    name: '📊 Statistics',
+                    name: '📊 الإحصائيات',
                     value: [
-                        `**Servers:** ${client.guilds.cache.size}`,
-                        `**Users:** ${client.users.cache.size}`,
-                        `**Commands:** ${client.commands.size}`,
-                        `**Uptime:** ${formatUptime(client.stats.startTime)}`
+                        `**السيرفرات:** ${client.guilds.cache.size}`,
+                        `**المستخدمين:** ${client.users.cache.size}`,
+                        `**الأوامر:** ${client.commands.size}`,
+                        `**وقت التشغيل:** ${formatUptime(client.stats.startTime)}`
                     ].join('\n'),
                     inline: true
                 },
                 {
-                    name: 'ℹ️ Info',
+                    name: 'ℹ️ معلومات',
                     value: [
-                        `**Version:** ${dbConfig?.version || '2.0.0'}`,
-                        `**Developer:** Crévion Team`,
-                        `**Prefix:** \`${dbConfig?.prefix || '-'}\``
+                        `**الإصدار:** ${dbConfig?.version || '2.0.0'}`,
+                        `**المطور:** Crévion Team`,
+                        `**البادئة:** \`${dbConfig?.prefix || '-'}\``
                     ].join('\n'),
                     inline: true
                 }
-            ],
-            thumbnail: { url: dbConfig?.embedSettings?.thumbnail },
-            footer: {
+            )
+            .setThumbnail(dbConfig?.embedSettings?.thumbnail)
+            .setFooter({
                 text: dbConfig?.embedSettings?.footer,
-                icon_url: dbConfig?.embedSettings?.footerIcon
-            },
-            timestamp: new Date()
-        };
+                iconURL: dbConfig?.embedSettings?.footerIcon
+            })
+            .setTimestamp();
 
-        await interaction.reply({ embeds: [infoEmbed], ephemeral: true });
+        await interaction.reply({ embeds: [embed], ephemeral: true });
+
     } catch (error) {
-        console.error('❌ Error in bot info:', error);
+        console.error('❌ Bot info error:', error);
         await interaction.reply({
-            embeds: [{
-                color: 0xED4245,
-                title: '❌ Error',
-                description: 'Failed to load bot information.',
-                footer: { text: 'Crévion' }
-            }],
+            content: '❌ فشل عرض المعلومات',
             ephemeral: true
         }).catch(() => {});
     }
 }
 
-// Handle showcase buttons (placeholder)
-async function handleShowcaseButtons(interaction) {
-    await interaction.reply({
-        embeds: [{
-            color: 0xFEE75C,
-            title: '🚧 Feature Under Development',
-            description: 'نحن نعمل على تحسين هذه الميزة!\nستكون متاحة قريباً عند ربط البوت بالموقع.',
-            footer: { text: 'Crévion Development' }
-        }],
-        ephemeral: true
-    });
+// ═══════════════════════════════════════════════════════════════
+// 🎛️ PERMISSIONS DASHBOARD HANDLERS
+// ═══════════════════════════════════════════════════════════════
+
+async function handlePermissionButton(interaction, client) {
+    const customId = interaction.customId;
+
+    // Back to main dashboard
+    if (customId === 'perm_back_to_main') {
+        const { default: permCmd } = await import('../commands/owner/permissions.js');
+        await permCmd.execute(interaction, client);
+        return;
+    }
+
+    // All dashboard buttons
+    if ([
+        'perm_view_all', 
+        'perm_reset_to_default',
+        'perm_user_add',
+        'perm_user_remove',
+        'perm_cmd_set',
+        'perm_cmd_remove'
+    ].includes(customId)) {
+        await handlePermissionButtons(interaction, client);
+        return;
+    }
+
+    // Confirm reset
+    if (customId === 'perm_confirm_reset') {
+        await handleResetConfirm(interaction);
+        return;
+    }
+
+    // Cancel reset
+    if (customId === 'perm_cancel_reset') {
+        await interaction.update({
+            embeds: [{
+                color: 0x57F287,
+                title: '✅ تم الإلغاء',
+                description: 'لم يتم إجراء أي تغييرات.',
+                footer: { text: 'Crévion' }
+            }],
+            components: []
+        });
+        return;
+    }
 }
 
-// Helper functions
+// ═══════════════════════════════════════════════════════════════
+// 📝 HELPER FUNCTIONS
+// ═══════════════════════════════════════════════════════════════
+
 function getCommandCategory(cmd) {
     const level = cmd.permission || 0;
     
