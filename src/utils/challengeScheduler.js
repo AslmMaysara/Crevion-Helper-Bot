@@ -3,7 +3,7 @@
 import { Challenge, getConfig } from '../models/index.js';
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import fetch from 'node-fetch';
-import { aiManager, SYSTEM_PROMPTS } from './aiManager.js';
+import { aiManager } from './aiManager.js';
 
 // LeetCode API endpoints (unofficial GraphQL API)
 const LEETCODE_API = 'https://leetcode.com/graphql';

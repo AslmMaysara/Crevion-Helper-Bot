@@ -1,4 +1,4 @@
-// src/utils/aiManager.js
+// src/utils/aiManager.js - ULTRA ADVANCED VERSION
 
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
@@ -8,72 +8,56 @@ dotenv.config();
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 
-// AI Models Configuration - UPDATED WITH NEW GROQ MODELS
 const AI_MODELS = {
     GROQ: {
         name: 'Groq',
         baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
-        model: 'llama-3.3-70b-versatile', // ✅ NEW MODEL (replaces mixtral)
-        strengths: ['code_generation', 'problem_solving', 'speed'],
-        maxTokens: 8000
+        model: 'llama-3.3-70b-versatile',
+        visionModel: 'llama-3.2-90b-vision-preview', // ✅ Vision support!
+        maxTokens: 8000,
+        supportsVision: true
     },
     DEEPSEEK: {
         name: 'DeepSeek',
         baseUrl: 'https://api.deepseek.com/v1/chat/completions',
         model: 'deepseek-chat',
-        strengths: ['code_explanation', 'debugging', 'optimization'],
-        maxTokens: 4000
+        maxTokens: 4000,
+        supportsVision: false
     }
 };
 
-// Task types and their best AI
-const TASK_AI_MAP = {
-    code_generation: 'GROQ',
-    code_explanation: 'DEEPSEEK',
-    code_review: 'DEEPSEEK',
-    debugging: 'DEEPSEEK',
-    optimization: 'DEEPSEEK',
-    general: 'GROQ',
-    design: 'GROQ',
-    quick_answer: 'GROQ'
-};
-
-class DualAIManager {
+class UltraAIManager {
     constructor() {
         this.groqAvailable = !!GROQ_API_KEY;
         this.deepseekAvailable = !!DEEPSEEK_API_KEY;
         
-        if (!this.groqAvailable && !this.deepseekAvailable) {
-            console.error('❌ No AI APIs configured!');
-        } else {
-            console.log(`✅ AI System: ${this.groqAvailable ? 'Groq(llama-3.3)✓' : ''} ${this.deepseekAvailable ? 'DeepSeek✓' : ''}`);
-        }
+        console.log(`✅ AI: ${this.groqAvailable ? 'Groq✓(Vision✓)' : ''} ${this.deepseekAvailable ? 'DeepSeek✓' : ''}`);
     }
 
-    selectAI(taskType) {
-        const preferredAI = TASK_AI_MAP[taskType] || 'GROQ';
+    async chat(userMessage, conversationHistory = [], channelMemories = {}, sharedContext = {}, attachments = [], emojis = [], currentUser = {}) {
+        // Select AI with vision if images present
+        const hasImages = attachments.some(a => a.type === 'image');
+        const ai = (hasImages && this.groqAvailable) ? AI_MODELS.GROQ : 
+                   (this.groqAvailable ? AI_MODELS.GROQ : AI_MODELS.DEEPSEEK);
         
-        if (preferredAI === 'GROQ' && this.groqAvailable) return AI_MODELS.GROQ;
-        if (preferredAI === 'DEEPSEEK' && this.deepseekAvailable) return AI_MODELS.DEEPSEEK;
-        
-        if (this.groqAvailable) return AI_MODELS.GROQ;
-        if (this.deepseekAvailable) return AI_MODELS.DEEPSEEK;
-        
-        return null;
-    }
-
-    async request(taskType, systemPrompt, userMessage, conversationHistory = []) {
-        const ai = this.selectAI(taskType);
-        
-        if (!ai) {
-            throw new Error('No AI available');
-        }
+        if (!ai) throw new Error('No AI available');
 
         const apiKey = ai.name === 'Groq' ? GROQ_API_KEY : DEEPSEEK_API_KEY;
 
-        try {
-            console.log(`🤖 Using ${ai.name} (${ai.model}) for ${taskType}`);
+        // Build enhanced system prompt
+        const systemPrompt = this.buildEnhancedSystemPrompt(channelMemories, sharedContext, currentUser, attachments, emojis);
 
+        // Build messages with vision support
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            ...conversationHistory.slice(-30),
+            this.buildUserMessageWithVision(userMessage, attachments, currentUser)
+        ];
+
+        // Select model (vision if needed)
+        const selectedModel = (hasImages && ai.supportsVision) ? ai.visionModel : ai.model;
+
+        try {
             const response = await fetch(ai.baseUrl, {
                 method: 'POST',
                 headers: {
@@ -81,186 +65,241 @@ class DualAIManager {
                     'Authorization': `Bearer ${apiKey}`
                 },
                 body: JSON.stringify({
-                    model: ai.model,
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        ...conversationHistory,
-                        { role: 'user', content: userMessage }
-                    ],
+                    model: selectedModel,
+                    messages: messages,
                     max_tokens: ai.maxTokens,
-                    temperature: 0.7,
-                    top_p: 0.9
+                    temperature: 0.85,
+                    top_p: 0.95
                 }),
-                timeout: 30000
+                timeout: 35000
             });
 
             if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`${ai.name} API error: ${error}`);
+                throw new Error(`API error: ${response.status}`);
             }
 
             const data = await response.json();
-            const content = data.choices[0].message.content;
+            let content = data.choices[0].message.content;
 
-            console.log(`✅ ${ai.name} responded: ${content.length} chars`);
+            content = this.cleanResponse(content);
 
             return {
                 content,
                 model: ai.name,
+                usedVision: hasImages && ai.supportsVision,
                 tokensUsed: data.usage?.total_tokens || 0
             };
 
         } catch (error) {
             console.error(`❌ ${ai.name} error:`, error.message);
-            
-            // Auto-fallback to other AI (ONLY ONCE)
-            if (ai.name === 'Groq' && this.deepseekAvailable) {
-                console.log('🔄 Falling back to DeepSeek...');
-                
-                try {
-                    const fallbackResponse = await fetch(AI_MODELS.DEEPSEEK.baseUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-                        },
-                        body: JSON.stringify({
-                            model: AI_MODELS.DEEPSEEK.model,
-                            messages: [
-                                { role: 'system', content: systemPrompt },
-                                ...conversationHistory,
-                                { role: 'user', content: userMessage }
-                            ],
-                            max_tokens: AI_MODELS.DEEPSEEK.maxTokens,
-                            temperature: 0.7
-                        }),
-                        timeout: 30000
-                    });
-                    
-                    if (fallbackResponse.ok) {
-                        const data = await fallbackResponse.json();
-                        return {
-                            content: data.choices[0].message.content,
-                            model: 'DeepSeek',
-                            tokensUsed: data.usage?.total_tokens || 0
-                        };
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ Fallback also failed:', fallbackError.message);
-                }
-            }
-            
             throw error;
         }
+    }
+
+    buildEnhancedSystemPrompt(channelMemories, sharedContext, currentUser, attachments, emojis) {
+        const userName = currentUser.username || 'المستخدم';
+        const userId = currentUser.id;
+
+        let prompt = `أنت **Crévion AI**، مساعد ذكي عفوي ومضحك في سيرفر Crévion Community.
+
+🎯 **هويتك:**
+- اسمك: Crévion AI (لكن متقولش اسمك كل مرة!)
+- شخصيتك: **عفوي، طريف، ذكي، صديق حميمي**
+- مكانك: قناة AI في Crévion Community
+- السيرفر: مجتمع للمبدعين في البرمجة والتصميم
+
+😎 **شخصيتك الجديدة:**
+- **عفوي جداً:** رد براحتك زي ما لو بتكلم صاحبك
+- **مضحك شوية:** استخدم دعابات خفيفة لما يكون المكان مناسب
+- **طبيعي:** مش كل كلامك لازم يكون رسمي
+- **تفاعلي:** لو حد بعت ستيكر مضحك، رد عليه بطريقة طريفة
+- **متواضع:** لو غلطت، اعترف واضحك على نفسك
+
+🧠 **قدراتك الخارقة:**
+- 👁️ **رؤية الصور والستيكرز:** تقدر تشوف الصور والستيكرز وتعلق عليها بطريقة طريفة
+- 😀 **فهم الإيموجيات:** تفهم الإيموجيات المخصصة وتستخدمها برضو
+- 👥 **محادثات جماعية:** تقدر تتابع محادثات بين ناس كتير
+- 🎮 **ألعاب:** تحكم ألعاب وتبقى طريف في التعليق
+- 💾 **ذاكرة قوية:** تفتكر كل حاجة عن كل واحد
+- 📚 **تعلّم:** كل ما الناس تكلمك أكتر، تبقى أذكى
+
+💬 **أسلوبك الجديد:**
+- متبقاش جامد أوي في الكلام
+- استخدم تعبيرات عربية عادية زي "يعني"، "بس"، "خالص"
+- لو حد بعت حاجة مضحكة، اضحك معاه
+- لو حد سألك سؤال غريب، رد بطريقة طريفة
+- **بدون رموز غريبة** أو أحرف صينية أبداً
+- **بدون توقيع** في النهاية خالص
+- **بدون emojis كتير** (واحد أو اتنين كفاية)
+
+`;
+
+        // Current user
+        prompt += `\n👤 **بتكلم دلوقتي:**\n- ${userName}\n`;
+
+        // User memories
+        if (channelMemories && Object.keys(channelMemories).length > 0) {
+            prompt += `\n📝 **اللي فاكره عن الناس:**\n`;
+            
+            for (const [uid, memory] of Object.entries(channelMemories)) {
+                if (memory && (memory.name || memory.facts?.length > 0)) {
+                    const name = memory.name || uid;
+                    const facts = memory.facts?.slice(0, 3).join(', ') || '';
+                    if (facts) {
+                        prompt += `- ${name}: ${facts}\n`;
+                    }
+                }
+            }
+        }
+
+        // Shared context
+        if (sharedContext && sharedContext.currentGame) {
+            prompt += `\n🎮 **اللعبة الحالية:**\n`;
+            prompt += `- اللعبة: ${sharedContext.currentGame}\n`;
+            
+            if (sharedContext.participants && sharedContext.participants.length > 0) {
+                prompt += `- اللاعبين: ${sharedContext.participants.length} لاعب\n`;
+            }
+        }
+
+        // Attachments (ENHANCED)
+        if (attachments.length > 0) {
+            prompt += `\n📎 **المستخدم بعت:**\n`;
+            attachments.forEach(att => {
+                if (att.type === 'image') {
+                    prompt += `- 🖼️ صورة: ${att.name}\n`;
+                    prompt += `  ✅ **أنت بتشوف الصورة دي!** وصفها بالتفصيل وعلق عليها بطريقة طريفة لو كانت مضحكة.\n`;
+                } else if (att.type === 'sticker') {
+                    prompt += `- 🎭 ستيكر: "${att.description || att.name}"\n`;
+                    prompt += `  ✅ **أنت بتشوف الستيكر ده!** علق عليه بطريقة طبيعية ومضحكة.\n`;
+                } else if (att.type === 'file') {
+                    prompt += `- 📄 ملف: ${att.name}\n`;
+                } else if (att.type === 'link') {
+                    prompt += `- 🔗 رابط: ${att.url}\n`;
+                }
+            });
+        }
+
+        // Emojis (NEW!)
+        if (emojis && emojis.length > 0) {
+            prompt += `\n😀 **الإيموجيات المستخدمة:**\n`;
+            emojis.forEach(emoji => {
+                prompt += `- :${emoji.name}: (إيموجي مخصص من السيرفر)\n`;
+            });
+            prompt += `**تقدر تستخدم نفس الإيموجيات في ردك!**\n`;
+        }
+
+        prompt += `\n⚠️ **قواعد صارمة:**
+1. **لا تذكر اسم الموديل** أبداً (Groq/DeepSeek/LLaMA)
+2. **لا تكتب توقيع** في آخر الرد
+3. **رد مباشرة** زي ما لو بتكلم صاحبك
+4. **لو شفت صورة/ستيكر:** وصفها واتكلم عنها بعفوية
+5. **لو في لعبة:** كن حيادي لكن اتكلم بطريقة مرحة
+6. **متكررش نفسك:** كل رد يكون مختلف
+
+🎯 **أمثلة على أسلوبك:**
+- مش "أهلاً بك عزيزي المستخدم" → **"إيه يا معلم، عامل إيه؟"**
+- مش "شكراً لك على السؤال" → **"تمام، ده سؤال حلو"**
+- مش "أنا مساعد ذكي" → **"أنا هنا، قول محتاج إيه"**
+
+الآن، رد بعفوية وذكاء!`;
+
+        return prompt;
+    }
+
+    buildUserMessageWithVision(message, attachments, currentUser) {
+        const content = [];
+
+        // Add text
+        const userText = message || '📎 [بعت حاجة]';
+        content.push({
+            type: 'text',
+            text: `[${currentUser.username}]: ${userText}`
+        });
+
+        // Add images/stickers for vision
+        attachments.forEach(att => {
+            if (att.type === 'image' || att.type === 'sticker') {
+                content.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: att.url,
+                        detail: 'high' // ✅ High detail for better analysis
+                    }
+                });
+            }
+        });
+
+        return {
+            role: 'user',
+            content: content.length === 1 ? content[0].text : content
+        };
+    }
+
+    cleanResponse(text) {
+        // Remove AI model signatures
+        text = text.replace(/- (Groq|DeepSeek|LLaMA|Crévion AI|Claude|GPT)\s*$/gim, '');
+        text = text.replace(/\*\*(Groq|DeepSeek|LLaMA|Claude|GPT)\*\*/gi, '');
+        
+        // Remove weird characters
+        text = text.replace(/[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/g, '');
+        
+        // Remove multiple newlines
+        text = text.replace(/\n{3,}/g, '\n\n');
+        
+        return text.trim();
     }
 
     isAvailable() {
         return this.groqAvailable || this.deepseekAvailable;
     }
 
-    getStatus() {
-        return {
-            groq: this.groqAvailable,
-            deepseek: this.deepseekAvailable,
-            preferred: this.groqAvailable ? 'Groq' : (this.deepseekAvailable ? 'DeepSeek' : 'None')
-        };
+    supportsVision() {
+        return this.groqAvailable;
     }
 }
 
-export const aiManager = new DualAIManager();
+export const aiManager = new UltraAIManager();
 
-// System prompts
+// ═══════════════════════════════════════════════════════════════
+// 📚 SYSTEM PROMPTS (للتوافق)
+// ═══════════════════════════════════════════════════════════════
+
 export const SYSTEM_PROMPTS = {
-    general: `You are Crevion AI, an elite assistant for developers and designers at Crevion Community.
-
-**Your Role:**
-- Help developers learn and grow
-- Provide clear, practical solutions
-- Be encouraging and supportive
-- Match the user's language (Arabic or English)
-
-**Expertise:**
-- Programming: JavaScript, TypeScript, Python, React, Node.js, Discord.js
-- Design: UI/UX, Color Theory, Web Design, CSS
-- Problem Solving: Algorithms, Data Structures, Debugging
-
-**Communication Style:**
-- Be natural and conversational (like talking to a friend)
-- Use emojis sparingly (only when they add value)
-- Give complete, working solutions
-- Explain concepts clearly
-- Be encouraging and positive
-
-**CRITICAL RULES:**
-- NEVER mention your AI model name in responses
-- NEVER add signatures like "- Groq" or "- DeepSeek" at the end
-- Match the user's language exactly (if they speak Arabic, respond in Arabic only)
-- Focus on being helpful, not on branding`,
-
-    code_generation: `You are an expert programmer. Generate clean, production-ready code.
-
-**Requirements:**
-- Include proper error handling
-- Follow best practices
-- Add clear comments
-- Use modern syntax
-- Optimize performance`,
-
-    code_explanation: `You are a patient teacher. Explain code clearly and thoroughly.
-
-**Guidelines:**
-- Start with simple explanations
-- Use analogies and examples
-- Break down complex topics step-by-step
-- Highlight important concepts`,
-
-    debugging: `You are a debugging expert. Find issues and provide solutions.
-
-**Approach:**
-- Identify all potential bugs
-- Explain why they occur
-- Provide fixed code
-- Suggest prevention tips`,
-
-    optimization: `You are a performance optimization expert.
-
-**Focus:**
-- Identify bottlenecks
-- Suggest optimizations
-- Provide benchmarks
-- Explain trade-offs`,
-
-    design: `You are a UI/UX design expert.
-
-**Provide:**
-- Modern design principles
-- Color schemes (hex codes)
-- Typography suggestions
-- Layout ideas
-- Accessibility tips`
+    general: `You are Crévion AI, an advanced assistant.`,
+    code_generation: `Generate clean code with best practices.`,
+    code_explanation: `Explain code clearly and thoroughly.`,
+    debugging: `Debug code professionally.`,
+    optimization: `Optimize code for performance.`,
+    design: `Provide modern UI/UX design advice.`
 };
 
-export function detectTaskType(message) {
+// Memory extraction
+export function extractMemoryFromMessage(message, currentMemory = {}) {
     const lower = message.toLowerCase();
-    
-    if (lower.includes('write') || lower.includes('create') || lower.includes('generate')) {
-        return 'code_generation';
+    const newMemory = { ...currentMemory };
+
+    if (lower.includes('اسمي') || lower.includes('my name is')) {
+        const nameMatch = message.match(/اسمي\s+(\S+)/i) || message.match(/my name is\s+(\S+)/i);
+        if (nameMatch) {
+            newMemory.name = nameMatch[1];
+        }
     }
-    if (lower.includes('explain') || lower.includes('what is') || lower.includes('how does')) {
-        return 'code_explanation';
+
+    if (lower.includes('ناديني') || lower.includes('call me')) {
+        const nickMatch = message.match(/ناديني\s+(\S+)/i) || message.match(/call me\s+(\S+)/i);
+        if (nickMatch) {
+            newMemory.nickname = nickMatch[1];
+        }
     }
-    if (lower.includes('review') || lower.includes('check')) {
-        return 'code_review';
+
+    if (lower.includes('احفظ') || lower.includes('remember')) {
+        const fact = message.replace(/(احفظ|remember)/gi, '').trim();
+        if (!newMemory.facts) newMemory.facts = [];
+        if (fact && !newMemory.facts.includes(fact)) {
+            newMemory.facts.push(fact);
+        }
     }
-    if (lower.includes('debug') || lower.includes('fix') || lower.includes('error')) {
-        return 'debugging';
-    }
-    if (lower.includes('optimize') || lower.includes('performance')) {
-        return 'optimization';
-    }
-    if (lower.includes('design') || lower.includes('ui') || lower.includes('ux')) {
-        return 'design';
-    }
-    
-    return 'general';
+
+    return newMemory;
 }

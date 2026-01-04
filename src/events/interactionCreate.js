@@ -2,7 +2,6 @@
 
 import { Events, EmbedBuilder } from 'discord.js';
 import { getConfig } from '../models/index.js';
-import { handleAIButtons } from './aiAssistant.js';
 import { handleChallengeAIHint } from '../utils/challengeScheduler.js';
 import { 
     handlePermissionSelectMenu, 

@@ -1,75 +1,159 @@
-// src/events/aiAssistant.js
+// src/events/aiAssistant.js - VISION FIXED + FUNNIER AI
 
 import { Events, AttachmentBuilder } from 'discord.js';
-import { aiManager, SYSTEM_PROMPTS, detectTaskType } from '../utils/aiManager.js';
+import { aiManager, extractMemoryFromMessage } from '../utils/aiManager.js';
+import { 
+    getOrCreateChannelConversation, 
+    addChannelMessage, 
+    getChannelHistory,
+    updateUserMemoryInChannel,
+    getSharedContext,
+    updateSharedContext
+} from '../models/aiConversation.js';
 
 const AI_CHANNEL_ID = '1437119111221084261';
-
-// Conversation memory per user
-const conversations = new Map();
-const MAX_HISTORY = 15;
 
 export default {
     name: Events.MessageCreate,
     
     async execute(message, client) {
-        // Only AI channel
         if (message.channel.id !== AI_CHANNEL_ID) return;
         if (message.author.bot) return;
 
         const userId = message.author.id;
+        const username = message.author.username;
+        const channelId = message.channel.id;
 
         try {
-            // Check AI availability
             if (!aiManager.isAvailable()) {
                 return await message.reply({
-                    content: '⚠️ **AI Not Available**\n\nNo AI APIs configured. Contact bot owner.',
+                    content: '⚠️ **AI مش شغال دلوقتي**',
                     allowedMentions: { repliedUser: false }
                 });
             }
 
-            // Show typing
             await message.channel.sendTyping();
 
-            // Get/create conversation history
-            if (!conversations.has(userId)) {
-                conversations.set(userId, []);
-            }
-            const history = conversations.get(userId);
+            const conversation = await getOrCreateChannelConversation(channelId, message.channel.name);
 
-            // Limit history
-            if (history.length > MAX_HISTORY * 2) {
-                history.splice(0, 4);
-            }
-
-            const userMessage = message.content.trim();
-
-            console.log(`\n🤖 [AI Request]`);
-            console.log(`   User: ${message.author.tag}`);
-            console.log(`   Message: ${userMessage.substring(0, 100)}...`);
-
-            // Detect language and task
-            const isArabic = /[\u0600-\u06FF]/.test(userMessage);
-            const taskType = detectTaskType(userMessage);
+            // ═══════════════════════════════════════════════════════════════
+            // 📎 EXTRACT ATTACHMENTS (FIXED FOR VISION!)
+            // ═══════════════════════════════════════════════════════════════
+            const attachments = [];
             
-            console.log(`   Language: ${isArabic ? 'Arabic' : 'English'}`);
-            console.log(`   Task: ${taskType}`);
+            // 1️⃣ Regular attachments (images, files)
+            message.attachments.forEach(att => {
+                if (att.contentType?.startsWith('image/')) {
+                    attachments.push({
+                        type: 'image',
+                        url: att.url,
+                        name: att.name || 'image.png',
+                        analyzed: false
+                    });
+                    console.log(`   🖼️ Image detected: ${att.url}`);
+                } else {
+                    attachments.push({
+                        type: 'file',
+                        url: att.url,
+                        name: att.name
+                    });
+                }
+            });
 
-            // Build smart system prompt
-            let systemPrompt = SYSTEM_PROMPTS[taskType] || SYSTEM_PROMPTS.general;
-            
-            // Add language instruction
-            if (isArabic) {
-                systemPrompt += '\n\n**CRITICAL: User is speaking Arabic. You MUST respond in Arabic only. Do not use English.**';
-            } else {
-                systemPrompt += '\n\n**CRITICAL: User is speaking English. You MUST respond in English only.**';
+            // 2️⃣ Stickers (Discord stickers)
+            if (message.stickers.size > 0) {
+                message.stickers.forEach(sticker => {
+                    const stickerUrl = `https://media.discordapp.net/stickers/${sticker.id}.png`;
+                    attachments.push({
+                        type: 'sticker',
+                        url: stickerUrl,
+                        name: sticker.name,
+                        description: sticker.description || sticker.name
+                    });
+                    console.log(`   🎭 Sticker detected: ${sticker.name}`);
+                });
             }
 
-            // Make AI request with timeout
+            // 3️⃣ Emojis (extract from message)
+            const emojiRegex = /<a?:(\w+):(\d+)>/g;
+            const emojiMatches = [...message.content.matchAll(emojiRegex)];
+            const emojis = emojiMatches.map(match => ({
+                name: match[1],
+                id: match[2],
+                animated: match[0].startsWith('<a:')
+            }));
+
+            // 4️⃣ Links
+            const linkRegex = /(https?:\/\/[^\s]+)/g;
+            const links = message.content.match(linkRegex);
+            if (links) {
+                links.forEach(link => {
+                    // Don't add Discord CDN links (already handled)
+                    if (!link.includes('cdn.discordapp.com') && !link.includes('media.discordapp.net')) {
+                        attachments.push({
+                            type: 'link',
+                            url: link
+                        });
+                    }
+                });
+            }
+
+            // Extract mentions
+            const mentions = message.mentions.users.map(u => u.username);
+
+            // Get conversation history
+            const history = await getChannelHistory(channelId, 30);
+
+            // Get shared context
+            const sharedContext = await getSharedContext(channelId);
+
+            // Get user memories
+            const channelMemories = {};
+            if (conversation.userMemories) {
+                for (const [uid, memory] of conversation.userMemories) {
+                    channelMemories[uid] = memory;
+                }
+            }
+
+            const userMessage = message.content.trim() || '📎 [أرسل مرفقات]';
+
+            console.log(`\n🤖 [AI Request - Enhanced]`);
+            console.log(`   User: ${username} (${userId})`);
+            console.log(`   Message: ${userMessage.substring(0, 100)}`);
+            console.log(`   Mentions: ${mentions.length > 0 ? mentions.join(', ') : 'none'}`);
+            console.log(`   Images: ${attachments.filter(a => a.type === 'image').length}`);
+            console.log(`   Stickers: ${attachments.filter(a => a.type === 'sticker').length}`);
+            console.log(`   Emojis: ${emojis.length}`);
+            console.log(`   History: ${history.length} messages`);
+
+            // Detect game start
+            const gameDetection = detectGameStart(userMessage, mentions);
+            if (gameDetection.isGame) {
+                await updateSharedContext(channelId, {
+                    currentGame: gameDetection.gameName,
+                    participants: [userId, ...message.mentions.users.map(u => u.id)],
+                    gameState: {},
+                    lastActivity: new Date()
+                });
+                
+                console.log(`   🎮 Game Started: ${gameDetection.gameName}`);
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // 🤖 MAKE AI REQUEST (WITH VISION!)
+            // ═══════════════════════════════════════════════════════════════
             const response = await Promise.race([
-                aiManager.request(taskType, systemPrompt, userMessage, history),
+                aiManager.chat(
+                    userMessage, 
+                    history, 
+                    channelMemories, 
+                    sharedContext, 
+                    attachments,
+                    emojis,
+                    { id: userId, username }
+                ),
                 new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('timeout')), 25000)
+                    setTimeout(() => reject(new Error('timeout')), 40000)
                 )
             ]);
 
@@ -77,33 +161,79 @@ export default {
                 throw new Error('No response from AI');
             }
 
-            // Update conversation history
-            history.push(
-                { role: "user", content: userMessage },
-                { role: "assistant", content: response.content }
+            // Save messages
+            await addChannelMessage(
+                channelId, 
+                'user', 
+                userMessage, 
+                userId, 
+                username, 
+                mentions, 
+                attachments
             );
 
-            console.log(`   ✅ Response: ${response.content.length} chars from ${response.model}\n`);
+            await addChannelMessage(
+                channelId, 
+                'assistant', 
+                response.content
+            );
+
+            // Update memory
+            const currentUserMemory = conversation.userMemories?.get(userId) || {};
+            const updatedMemory = extractMemoryFromMessage(userMessage, currentUserMemory);
+            
+            if (JSON.stringify(updatedMemory) !== JSON.stringify(currentUserMemory)) {
+                await updateUserMemoryInChannel(channelId, userId, updatedMemory);
+                console.log(`   💾 Memory updated`);
+            }
+
+            console.log(`   ✅ Response: ${response.content.length} chars`);
+            if (response.usedVision) {
+                console.log(`   👁️ Vision API used!`);
+            }
 
             // Send response
-            await sendAIResponse(message, response.content, response.model);
+            await sendAIResponse(message, response.content);
 
         } catch (error) {
-            console.error('\n❌ [AI Error]:', error.message, '\n');
+            console.error('\n❌ [AI Error]:', error.message);
             await handleAIError(message, error);
         }
     }
 };
 
 // ═══════════════════════════════════════════════════════════════
-// 📤 SEND AI RESPONSE
+// 🎮 GAME DETECTION
 // ═══════════════════════════════════════════════════════════════
 
-async function sendAIResponse(message, content, modelName) {
+function detectGameStart(message, mentions) {
+    const lower = message.toLowerCase();
+    
+    const games = [
+        { keywords: ['حجرة ورقة مقص', 'حجرة ورق مقص', 'rock paper scissors', 'حجره ورقه مقص'], name: 'Rock Paper Scissors' },
+        { keywords: ['xo', 'اكس او', 'x o', 'إكس أو'], name: 'XO' },
+        { keywords: ['تخمين رقم', 'guess number', 'خمن'], name: 'Number Guess' }
+    ];
+    
+    for (const game of games) {
+        for (const keyword of game.keywords) {
+            if (lower.includes(keyword) && mentions.length > 0) {
+                return { isGame: true, gameName: game.name };
+            }
+        }
+    }
+    
+    return { isGame: false };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 📤 SEND RESPONSE
+// ═══════════════════════════════════════════════════════════════
+
+async function sendAIResponse(message, content) {
     try {
         const maxLength = 1950;
 
-        // If short, send as reply
         if (content.length <= maxLength) {
             await message.reply({
                 content: content,
@@ -112,22 +242,18 @@ async function sendAIResponse(message, content, modelName) {
             return;
         }
 
-        // If long, split intelligently
         const chunks = splitIntelligently(content, maxLength);
 
-        // Send first chunk as reply
         await message.reply({
             content: chunks[0],
             allowedMentions: { repliedUser: false }
         });
 
-        // Send rest as normal messages
         for (let i = 1; i < Math.min(chunks.length, 5); i++) {
             await new Promise(r => setTimeout(r, 1000));
             await message.channel.send(chunks[i]);
         }
 
-        // If too long, offer file download
         if (chunks.length > 5) {
             const fullText = chunks.join('\n\n---\n\n');
             const buffer = Buffer.from(fullText, 'utf-8');
@@ -136,34 +262,29 @@ async function sendAIResponse(message, content, modelName) {
             });
 
             await message.channel.send({
-                content: `📎 **Full response is too long!**\n*Download the complete answer:*`,
+                content: `📎 **الرد طويل! حمّل الملف:**`,
                 files: [attachment]
             });
         }
 
     } catch (error) {
-        console.error('❌ Send response error:', error);
-        throw error;
+        console.error('❌ Send error:', error);
     }
 }
 
-// Split text intelligently at sentence/paragraph boundaries
 function splitIntelligently(text, maxLength) {
     const chunks = [];
     let current = '';
 
-    // Split by paragraphs first
     const paragraphs = text.split(/\n\n+/);
 
     for (const para of paragraphs) {
-        // If adding this paragraph exceeds limit
         if (current.length + para.length + 2 > maxLength) {
             if (current) {
                 chunks.push(current.trim());
                 current = '';
             }
 
-            // If paragraph itself is too long, split by sentences
             if (para.length > maxLength) {
                 const sentences = para.match(/[^.!?]+[.!?]+/g) || [para];
                 
@@ -195,50 +316,18 @@ function splitIntelligently(text, maxLength) {
 async function handleAIError(message, error) {
     const errorMsg = error.message.toLowerCase();
 
-    let userMessage = '❌ **حدث خطأ**\n\n';
+    let userMessage = '❌ **حصل حاجة غلط**\n\n';
 
     if (errorMsg.includes('timeout')) {
-        userMessage += 'استغرق الـ AI وقت طويل للرد. حاول مرة تانية بسؤال أقصر.';
+        userMessage += 'الـ AI خد وقت كتير. جرب تاني بكلام أقل.';
     } else if (errorMsg.includes('api') || errorMsg.includes('model')) {
-        userMessage += 'الـ AI مش متاح حالياً. جرب تاني بعد شوية.';
-    } else if (errorMsg.includes('no response')) {
-        userMessage += 'الـ AI مردش. حاول تاني.';
+        userMessage += 'الـ AI مش شغال دلوقتي. جرب بعد شوية.';
     } else {
-        userMessage += 'حاجة غلط حصلت. جرب تاني.';
+        userMessage += 'في مشكلة حصلت. حاول تاني.';
     }
 
     await message.reply({
         content: userMessage,
         allowedMentions: { repliedUser: false }
-    }).catch(err => {
-        console.error('❌ Could not send error message:', err);
-    });
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 🔘 BUTTON HANDLERS (for other features)
-// ═══════════════════════════════════════════════════════════════
-
-export async function handleAIButtons(interaction) {
-    const customId = interaction.customId;
-    
-    try {
-        // Clear context
-        if (customId.startsWith('clear_context_')) {
-            const userId = interaction.user.id;
-            conversations.delete(userId);
-            
-            await interaction.reply({
-                content: '✅ **تم مسح المحادثة**\n\nتقدر تبدأ محادثة جديدة دلوقتي!',
-                ephemeral: true
-            });
-        }
-        
-    } catch (error) {
-        console.error('❌ Button error:', error);
-        await interaction.reply({
-            content: '❌ فشل تنفيذ الأمر',
-            ephemeral: true
-        }).catch(() => {});
-    }
+    }).catch(() => {});
 }

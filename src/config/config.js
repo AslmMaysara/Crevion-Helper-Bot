@@ -46,9 +46,9 @@ export const config = {
     
     // About the bot
     about: {
-        name: 'Crévion',
+        name: 'Crevion',
         tagline: 'صنع بلمسة من الابداع خصيصا للمبدعين العرب',
-        description: 'أنا Crévion، بوت Discord مصمم خصيصًا لخدمة مجتمع Crevion. أقدم مجموعة متنوعة من الأوامر والميزات التي تساعد في إدارة السيرفر والتفاعل مع الأعضاء بطريقة إبداعية وممتعة.',
+        description: 'أنا Crevion، بوت Discord مصمم خصيصًا لخدمة مجتمع Crevion. أقدم مجموعة متنوعة من الأوامر والميزات التي تساعد في إدارة السيرفر والتفاعل مع الأعضاء بطريقة إبداعية وممتعة.',
         features: [
             '🎨 أوامر إبداعية ومبتكرة',
             '⚡ استجابة سريعة وموثوقة',
@@ -59,7 +59,7 @@ export const config = {
             '🎨 أدوات تصميم احترافية'
         ],
         version: '2.0.0',
-        developer: 'Crévion Development Team',
+        developer: 'Crevion Development Team',
         supportServer: 'https://discord.gg/mP9apCqDSZ',
         website: 'https://crevion.qzz.io',
         privacy: 'نحن نحترم خصوصيتك ولا نحفظ أي بيانات شخصية'
@@ -73,7 +73,7 @@ export const config = {
         successColor: 0x57F287,  // Green
         warningColor: 0xFEE75C,  // Yellow
         embedThumbnail: 'https://media.discordapp.net/attachments/1416900497423597739/1436341479072333888/Untitled166_20251103185926.png?ex=690f40be&is=690def3e&hm=34fce0a277a1a82c652520ea2a6f19b4e1b9532c71c650bbf0c067a26c163b86&=&format=webp&quality=lossless&width=990&height=990',
-        embedFooter: 'Crévion Community',
+        embedFooter: 'Crevion Community',
         embedFooterIcon: 'https://media.discordapp.net/attachments/1416900497423597739/1436341479072333888/Untitled166_20251103185926.png?ex=690f40be&is=690def3e&hm=34fce0a277a1a82c652520ea2a6f19b4e1b9532c71c650bbf0c067a26c163b86&=&format=webp&quality=lossless&width=990&height=990'
     },
 
