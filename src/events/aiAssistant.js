@@ -1,4 +1,4 @@
-// src/events/aiAssistant.js - VISION FIXED + FUNNIER AI
+// src/events/aiAssistant.js - FIXED VISION!
 
 import { Events, AttachmentBuilder } from 'discord.js';
 import { aiManager, extractMemoryFromMessage } from '../utils/aiManager.js';
@@ -36,12 +36,10 @@ export default {
 
             const conversation = await getOrCreateChannelConversation(channelId, message.channel.name);
 
-            // ═══════════════════════════════════════════════════════════════
-            // 📎 EXTRACT ATTACHMENTS (FIXED FOR VISION!)
-            // ═══════════════════════════════════════════════════════════════
+            // ✅ EXTRACT ATTACHMENTS (FIXED!)
             const attachments = [];
             
-            // 1️⃣ Regular attachments (images, files)
+            // 1️⃣ Images
             message.attachments.forEach(att => {
                 if (att.contentType?.startsWith('image/')) {
                     attachments.push({
@@ -50,17 +48,11 @@ export default {
                         name: att.name || 'image.png',
                         analyzed: false
                     });
-                    console.log(`   🖼️ Image detected: ${att.url}`);
-                } else {
-                    attachments.push({
-                        type: 'file',
-                        url: att.url,
-                        name: att.name
-                    });
+                    console.log(`   🖼️ Image: ${att.url}`);
                 }
             });
 
-            // 2️⃣ Stickers (Discord stickers)
+            // 2️⃣ Stickers
             if (message.stickers.size > 0) {
                 message.stickers.forEach(sticker => {
                     const stickerUrl = `https://media.discordapp.net/stickers/${sticker.id}.png`;
@@ -70,11 +62,11 @@ export default {
                         name: sticker.name,
                         description: sticker.description || sticker.name
                     });
-                    console.log(`   🎭 Sticker detected: ${sticker.name}`);
+                    console.log(`   🎭 Sticker: ${sticker.name}`);
                 });
             }
 
-            // 3️⃣ Emojis (extract from message)
+            // 3️⃣ Emojis
             const emojiRegex = /<a?:(\w+):(\d+)>/g;
             const emojiMatches = [...message.content.matchAll(emojiRegex)];
             const emojis = emojiMatches.map(match => ({
@@ -83,31 +75,16 @@ export default {
                 animated: match[0].startsWith('<a:')
             }));
 
-            // 4️⃣ Links
-            const linkRegex = /(https?:\/\/[^\s]+)/g;
-            const links = message.content.match(linkRegex);
-            if (links) {
-                links.forEach(link => {
-                    // Don't add Discord CDN links (already handled)
-                    if (!link.includes('cdn.discordapp.com') && !link.includes('media.discordapp.net')) {
-                        attachments.push({
-                            type: 'link',
-                            url: link
-                        });
-                    }
-                });
-            }
-
-            // Extract mentions
+            // Mentions
             const mentions = message.mentions.users.map(u => u.username);
 
-            // Get conversation history
+            // History
             const history = await getChannelHistory(channelId, 30);
 
-            // Get shared context
+            // Shared context
             const sharedContext = await getSharedContext(channelId);
 
-            // Get user memories
+            // User memories
             const channelMemories = {};
             if (conversation.userMemories) {
                 for (const [uid, memory] of conversation.userMemories) {
@@ -115,33 +92,15 @@ export default {
                 }
             }
 
-            const userMessage = message.content.trim() || '📎 [أرسل مرفقات]';
+            const userMessage = message.content.trim() || '📎 [بعت مرفقات]';
 
-            console.log(`\n🤖 [AI Request - Enhanced]`);
-            console.log(`   User: ${username} (${userId})`);
+            console.log(`\n🤖 [AI Request]`);
+            console.log(`   User: ${username}`);
             console.log(`   Message: ${userMessage.substring(0, 100)}`);
-            console.log(`   Mentions: ${mentions.length > 0 ? mentions.join(', ') : 'none'}`);
             console.log(`   Images: ${attachments.filter(a => a.type === 'image').length}`);
             console.log(`   Stickers: ${attachments.filter(a => a.type === 'sticker').length}`);
-            console.log(`   Emojis: ${emojis.length}`);
-            console.log(`   History: ${history.length} messages`);
 
-            // Detect game start
-            const gameDetection = detectGameStart(userMessage, mentions);
-            if (gameDetection.isGame) {
-                await updateSharedContext(channelId, {
-                    currentGame: gameDetection.gameName,
-                    participants: [userId, ...message.mentions.users.map(u => u.id)],
-                    gameState: {},
-                    lastActivity: new Date()
-                });
-                
-                console.log(`   🎮 Game Started: ${gameDetection.gameName}`);
-            }
-
-            // ═══════════════════════════════════════════════════════════════
-            // 🤖 MAKE AI REQUEST (WITH VISION!)
-            // ═══════════════════════════════════════════════════════════════
+            // ✅ CALL AI (WITH VISION!)
             const response = await Promise.race([
                 aiManager.chat(
                     userMessage, 
@@ -189,7 +148,7 @@ export default {
 
             console.log(`   ✅ Response: ${response.content.length} chars`);
             if (response.usedVision) {
-                console.log(`   👁️ Vision API used!`);
+                console.log(`   👁️ Vision used!`);
             }
 
             // Send response
@@ -202,34 +161,7 @@ export default {
     }
 };
 
-// ═══════════════════════════════════════════════════════════════
-// 🎮 GAME DETECTION
-// ═══════════════════════════════════════════════════════════════
-
-function detectGameStart(message, mentions) {
-    const lower = message.toLowerCase();
-    
-    const games = [
-        { keywords: ['حجرة ورقة مقص', 'حجرة ورق مقص', 'rock paper scissors', 'حجره ورقه مقص'], name: 'Rock Paper Scissors' },
-        { keywords: ['xo', 'اكس او', 'x o', 'إكس أو'], name: 'XO' },
-        { keywords: ['تخمين رقم', 'guess number', 'خمن'], name: 'Number Guess' }
-    ];
-    
-    for (const game of games) {
-        for (const keyword of game.keywords) {
-            if (lower.includes(keyword) && mentions.length > 0) {
-                return { isGame: true, gameName: game.name };
-            }
-        }
-    }
-    
-    return { isGame: false };
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 📤 SEND RESPONSE
-// ═══════════════════════════════════════════════════════════════
-
+// Send response
 async function sendAIResponse(message, content) {
     try {
         const maxLength = 1950;
@@ -262,7 +194,7 @@ async function sendAIResponse(message, content) {
             });
 
             await message.channel.send({
-                content: `📎 **الرد طويل! حمّل الملف:**`,
+                content: `📎 **الرد طويل:**`,
                 files: [attachment]
             });
         }
@@ -309,21 +241,20 @@ function splitIntelligently(text, maxLength) {
     return chunks;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ❌ ERROR HANDLER
-// ═══════════════════════════════════════════════════════════════
-
+// Error handler
 async function handleAIError(message, error) {
     const errorMsg = error.message.toLowerCase();
 
-    let userMessage = '❌ **حصل حاجة غلط**\n\n';
+    let userMessage = '❌ **في مشكلة**\n\n';
 
     if (errorMsg.includes('timeout')) {
-        userMessage += 'الـ AI خد وقت كتير. جرب تاني بكلام أقل.';
+        userMessage += 'الـ AI خد وقت كتير. جرب تاني.';
+    } else if (errorMsg.includes('quota') || errorMsg.includes('429')) {
+        userMessage += 'الـ AI وصل للحد الأقصى. جرب بعد شوية.';
     } else if (errorMsg.includes('api') || errorMsg.includes('model')) {
-        userMessage += 'الـ AI مش شغال دلوقتي. جرب بعد شوية.';
+        userMessage += 'الـ AI مش شغال دلوقتي.';
     } else {
-        userMessage += 'في مشكلة حصلت. حاول تاني.';
+        userMessage += 'حصل خطأ. حاول تاني.';
     }
 
     await message.reply({

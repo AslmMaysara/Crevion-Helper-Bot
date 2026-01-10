@@ -1,4 +1,4 @@
-// src/models/aiConversation.js
+// src/models/aiConversation.js - ADVANCED VERSION (FIXED!)
 
 import mongoose from 'mongoose';
 
@@ -13,7 +13,6 @@ const conversationSchema = new mongoose.Schema({
         default: 'AI Chat' 
     },
     
-    // ✅ NEW: Shared conversation for the CHANNEL
     conversationHistory: [{
         role: { 
             type: String, 
@@ -24,23 +23,22 @@ const conversationSchema = new mongoose.Schema({
             type: String, 
             required: true 
         },
-        userId: String,          // ✅ من مين الرسالة
-        username: String,        // ✅ اسم المستخدم
-        mentions: [String],      // ✅ المستخدمين اللي اتمنشنوا
+        userId: String,
+        username: String,
+        mentions: [String],
         timestamp: { 
             type: Date, 
             default: Date.now 
         },
         attachments: [{
-            type: { type: String }, // image, file, link
+            type: { type: String },
             url: String,
             name: String,
             description: String,
-            analyzed: Boolean      // ✅ تم تحليل الصورة؟
+            analyzed: Boolean
         }]
     }],
     
-    // ✅ Memory for individual users
     userMemories: {
         type: Map,
         of: {
@@ -52,7 +50,6 @@ const conversationSchema = new mongoose.Schema({
         }
     },
     
-    // ✅ Shared context (games, group activities)
     sharedContext: {
         currentGame: String,
         gameState: mongoose.Schema.Types.Mixed,
@@ -79,7 +76,7 @@ conversationSchema.index({ channelId: 1, lastInteraction: -1 });
 export const AIConversation = mongoose.model('AIConversation', conversationSchema);
 
 // ═══════════════════════════════════════════════════════════════
-// 📚 HELPER FUNCTIONS
+// 📚 HELPER FUNCTIONS (ALL EXPORTS!)
 // ═══════════════════════════════════════════════════════════════
 
 export async function getOrCreateChannelConversation(channelId, channelName = 'AI Chat') {
