@@ -241,24 +241,24 @@ function splitIntelligently(text, maxLength) {
     return chunks;
 }
 
-// Error handler
-async function handleAIError(message, error) {
-    const errorMsg = error.message.toLowerCase();
+// // Error handler
+// async function handleAIError(message, error) {
+//     const errorMsg = error.message.toLowerCase();
 
-    let userMessage = '❌ **في مشكلة**\n\n';
+//     let userMessage = '❌ **في مشكلة**\n\n';
 
-    if (errorMsg.includes('timeout')) {
-        userMessage += 'الـ AI خد وقت كتير. جرب تاني.';
-    } else if (errorMsg.includes('quota') || errorMsg.includes('429')) {
-        userMessage += 'الـ AI وصل للحد الأقصى. جرب بعد شوية.';
-    } else if (errorMsg.includes('api') || errorMsg.includes('model')) {
-        userMessage += 'الـ AI مش شغال دلوقتي.';
-    } else {
-        userMessage += 'حصل خطأ. حاول تاني.';
-    }
+//     if (errorMsg.includes('timeout')) {
+//         userMessage += 'الـ AI خد وقت كتير. جرب تاني.';
+//     } else if (errorMsg.includes('quota') || errorMsg.includes('429')) {
+//         userMessage += 'الـ AI وصل للحد الأقصى. جرب بعد شوية.';
+//     } else if (errorMsg.includes('api') || errorMsg.includes('model')) {
+//         userMessage += 'الـ AI مش شغال دلوقتي.';
+//     } else {
+//         userMessage += 'حصل خطأ. حاول تاني.';
+//     }
 
-    await message.reply({
-        content: userMessage,
-        allowedMentions: { repliedUser: false }
-    }).catch(() => {});
-}
+//     await message.reply({
+//         content: userMessage,
+//         allowedMentions: { repliedUser: false }
+//     }).catch(() => {});
+// }

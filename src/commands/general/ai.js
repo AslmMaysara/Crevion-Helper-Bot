@@ -1,11 +1,11 @@
-// src/commands/general/ai.js - FIXED
+// src/commands/general/ai.js - CLEAN VERSION (3 أوامر فقط)
 
 import { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import { PermissionLevels } from '../../utils/permissions.js';
 import { aiManager } from '../../utils/aiManager.js';
 import { 
     getOrCreateConversation, 
-    addChannelMessage, // ✅ FIXED!
+    addChannelMessage, 
     getConversationHistory 
 } from '../../models/aiConversation.js';
 
@@ -14,32 +14,32 @@ const AI_CHANNEL_ID = '1437119111221084261';
 export default {
     data: new SlashCommandBuilder()
         .setName('ai')
-        .setDescription('🤖 AI commands')
+        .setDescription('🤖 مساعد ذكاء اصطناعي')
         .addSubcommand(sub =>
             sub
                 .setName('ask')
-                .setDescription('Ask AI')
+                .setDescription('اسأل أي سؤال')
                 .addStringOption(opt =>
                     opt
                         .setName('question')
-                        .setDescription('Your question')
+                        .setDescription('سؤالك')
                         .setRequired(true)
                 )
         )
         .addSubcommand(sub =>
             sub
                 .setName('code')
-                .setDescription('Generate code')
+                .setDescription('توليد كود برمجي')
                 .addStringOption(opt =>
                     opt
                         .setName('request')
-                        .setDescription('What code?')
+                        .setDescription('ماذا تريد؟')
                         .setRequired(true)
                 )
                 .addStringOption(opt =>
                     opt
                         .setName('language')
-                        .setDescription('Language')
+                        .setDescription('لغة البرمجة')
                         .addChoices(
                             { name: 'JavaScript', value: 'javascript' },
                             { name: 'Python', value: 'python' },
@@ -51,7 +51,7 @@ export default {
         .addSubcommand(sub =>
             sub
                 .setName('clear')
-                .setDescription('Clear history')
+                .setDescription('مسح السجل')
         ),
 
     permission: PermissionLevels.EVERYONE,
@@ -62,24 +62,24 @@ export default {
                 embeds: [{
                     color: 0xFEE75C,
                     title: '⚠️ قناة خاطئة',
-                    description: `هذا الأمر يعمل فقط في <#${AI_CHANNEL_ID}>`,
+                    description: `هذا الأمر يعمل في <#${AI_CHANNEL_ID}> فقط`,
+                }],
+                ephemeral: true
+            });
+        }
+
+        if (!aiManager.isAvailable()) {
+            return await interaction.reply({
+                embeds: [{
+                    color: 0xED4245,
+                    title: '⚠️ غير متوفر',
+                    description: 'الذكاء الاصطناعي غير مُفعّل حالياً.',
                 }],
                 ephemeral: true
             });
         }
 
         const subcommand = interaction.options.getSubcommand();
-
-        if (!aiManager.isAvailable()) {
-            return await interaction.reply({
-                embeds: [{
-                    color: 0xED4245,
-                    title: '⚠️ AI Not Available',
-                    description: 'No AI configured.',
-                }],
-                ephemeral: true
-            });
-        }
 
         if (subcommand === 'ask') {
             await handleAsk(interaction);
@@ -90,6 +90,10 @@ export default {
         }
     }
 };
+
+// ═══════════════════════════════════════════════════════════════
+// 💬 ASK
+// ═══════════════════════════════════════════════════════════════
 
 async function handleAsk(interaction) {
     try {
@@ -119,7 +123,7 @@ async function handleAsk(interaction) {
         const embed = new EmbedBuilder()
             .setColor(0x370080)
             .setAuthor({
-                name: `${username}`,
+                name: username,
                 iconURL: interaction.user.displayAvatarURL()
             })
             .setDescription(response.content.substring(0, 4000))
@@ -129,15 +133,19 @@ async function handleAsk(interaction) {
         await interaction.editReply({ embeds: [embed] });
 
     } catch (error) {
-        console.error('❌ AI Ask Error:', error);
+        console.error('❌ Ask error:', error);
         await interaction.editReply({
             embeds: [{
                 color: 0xED4245,
-                description: '❌ فشل الرد'
+                description: '❌ حدث خطأ'
             }]
         }).catch(() => {});
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 💻 CODE
+// ═══════════════════════════════════════════════════════════════
 
 async function handleCode(interaction) {
     try {
@@ -152,7 +160,16 @@ async function handleCode(interaction) {
         const conversation = await getOrCreateConversation(channelId, interaction.channel.name);
         const history = await getConversationHistory(channelId, 10);
 
-        const prompt = `اكتب كود ${language} لـ: ${request}\n\nالمطلوب:\n- كود نظيف\n- تعليقات واضحة\n- معالجة الأخطاء`;
+        const prompt = `اكتب كوداً بلغة ${language} للمهمة التالية:
+
+${request}
+
+المطلوب:
+- كود نظيف ومرتب
+- تعليقات واضحة
+- أفضل الممارسات
+
+ضع الكود داخل \`\`\`${language}`;
 
         const response = await aiManager.chat(
             prompt, 
@@ -169,7 +186,7 @@ async function handleCode(interaction) {
 
         const embed = new EmbedBuilder()
             .setColor(0x370080)
-            .setTitle(`💻 ${language} Code`)
+            .setTitle(`💻 ${language.toUpperCase()} Code`)
             .setDescription(response.content.substring(0, 4000))
             .setFooter({ text: `Crévion AI • ${response.model}` })
             .setTimestamp();
@@ -180,27 +197,27 @@ async function handleCode(interaction) {
             const buffer = Buffer.from(response.content, 'utf-8');
             const ext = language === 'javascript' ? 'js' : language === 'python' ? 'py' : 'txt';
             const attachment = new AttachmentBuilder(buffer, { name: `code.${ext}` });
-            await interaction.followUp({ 
-                content: '📎 **Full code:**', 
-                files: [attachment] 
-            });
+            await interaction.followUp({ content: '📎 **الكود الكامل:**', files: [attachment] });
         }
 
     } catch (error) {
-        console.error('❌ AI Code Error:', error);
+        console.error('❌ Code error:', error);
         await interaction.editReply({
             embeds: [{
                 color: 0xED4245,
-                description: '❌ فشل توليد الكود'
+                description: '❌ حدث خطأ'
             }]
         }).catch(() => {});
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 🗑️ CLEAR
+// ═══════════════════════════════════════════════════════════════
+
 async function handleClear(interaction) {
     try {
         const channelId = interaction.channel.id;
-        
         const { AIConversation } = await import('../../models/aiConversation.js');
         await AIConversation.findOneAndDelete({ channelId });
 
@@ -214,7 +231,7 @@ async function handleClear(interaction) {
         });
 
     } catch (error) {
-        console.error('❌ Clear Error:', error);
+        console.error('❌ Clear error:', error);
         await interaction.reply({
             embeds: [{
                 color: 0xED4245,

@@ -1,4 +1,4 @@
-// src/models/aiConversation.js - ADVANCED VERSION (FIXED!)
+// src/models/aiConversation.js - FIXED EXPORTS!
 
 import mongoose from 'mongoose';
 
@@ -76,10 +76,10 @@ conversationSchema.index({ channelId: 1, lastInteraction: -1 });
 export const AIConversation = mongoose.model('AIConversation', conversationSchema);
 
 // ═══════════════════════════════════════════════════════════════
-// 📚 HELPER FUNCTIONS (ALL EXPORTS!)
+// ✅ ALL EXPORTS - FIXED!
 // ═══════════════════════════════════════════════════════════════
 
-export async function getOrCreateChannelConversation(channelId, channelName = 'AI Chat') {
+export async function getOrCreateConversation(channelId, channelName = 'AI Chat') {
     let conversation = await AIConversation.findOne({ channelId });
     
     if (!conversation) {
@@ -97,6 +97,9 @@ export async function getOrCreateChannelConversation(channelId, channelName = 'A
     
     return conversation;
 }
+
+// ✅ ALIAS (for backward compatibility)
+export const getOrCreateChannelConversation = getOrCreateConversation;
 
 export async function addChannelMessage(channelId, role, content, userId = null, username = null, mentions = [], attachments = []) {
     const conversation = await AIConversation.findOne({ channelId });
@@ -124,7 +127,7 @@ export async function addChannelMessage(channelId, role, content, userId = null,
     }
 }
 
-export async function getChannelHistory(channelId, limit = 30) {
+export async function getConversationHistory(channelId, limit = 30) {
     const conversation = await AIConversation.findOne({ channelId });
     
     if (!conversation) return [];
@@ -151,6 +154,9 @@ export async function getChannelHistory(channelId, limit = 30) {
         };
     });
 }
+
+// ✅ ALIAS
+export const getChannelHistory = getConversationHistory;
 
 export async function updateUserMemoryInChannel(channelId, userId, memoryUpdate) {
     const conversation = await AIConversation.findOne({ channelId });

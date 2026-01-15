@@ -7,18 +7,21 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DB_PATH = join(__dirname, '..', '..', 'data', 'autolines.json');
+const DATA_DIR = join(__dirname, '..', '..', 'data');
+const DB_PATH = join(DATA_DIR, 'autolines.json');
+
+const COOLDOWN_MS = 8000; // 8 ثواني (غيرها براحتك)
 
 class AutoLineSystem {
     constructor() {
         this.channels = this.load();
+        this.cooldowns = new Map(); // runtime only
     }
 
     load() {
         try {
-            const dataDir = join(__dirname, '..', '..', 'data');
-            if (!existsSync(dataDir)) {
-                mkdirSync(dataDir, { recursive: true });
+            if (!existsSync(DATA_DIR)) {
+                mkdirSync(DATA_DIR, { recursive: true });
             }
 
             if (existsSync(DB_PATH)) {
@@ -41,59 +44,65 @@ class AutoLineSystem {
         }
     }
 
-    // Add channel to auto line
+    // ────────────── BASIC CRUD ──────────────
+
     add(channelId, guildId) {
         this.channels[channelId] = {
-            guildId: guildId,
+            guildId,
             addedAt: Date.now(),
             messageCount: 0
         };
         return this.save();
     }
 
-    // Remove channel from auto line
     remove(channelId) {
-        if (this.channels[channelId]) {
-            delete this.channels[channelId];
-            return this.save();
-        }
-        return false;
+        if (!this.channels[channelId]) return false;
+        delete this.channels[channelId];
+        this.cooldowns.delete(channelId);
+        return this.save();
     }
 
-    // Check if channel has auto line enabled
     isEnabled(channelId) {
         return !!this.channels[channelId];
     }
 
-    // Get all channels
     getAll() {
         return this.channels;
     }
 
-    // Get channels for specific guild
     getByGuild(guildId) {
         return Object.entries(this.channels)
             .filter(([_, data]) => data.guildId === guildId)
             .map(([channelId, data]) => ({ channelId, ...data }));
     }
 
-    // Increment message count
-    incrementCount(channelId) {
-        if (this.channels[channelId]) {
-            this.channels[channelId].messageCount++;
-            this.save();
-        }
-    }
-
-    // Clear all
     clear() {
         this.channels = {};
+        this.cooldowns.clear();
         return this.save();
     }
 
-    // Get count
     count() {
         return Object.keys(this.channels).length;
+    }
+
+    // ────────────── MESSAGE STATS ──────────────
+
+    incrementCount(channelId) {
+        if (!this.channels[channelId]) return;
+        this.channels[channelId].messageCount++;
+        this.save();
+    }
+
+    // ────────────── COOLDOWN LOGIC ──────────────
+
+    canSend(channelId) {
+        const last = this.cooldowns.get(channelId) || 0;
+        return Date.now() - last >= COOLDOWN_MS;
+    }
+
+    markSent(channelId) {
+        this.cooldowns.set(channelId, Date.now());
     }
 }
 

@@ -44,7 +44,7 @@ async function processMessage(message, client) {
                     color: 0xFEE75C,
                     title: '⚠️ لا يوجد خط',
                     description: 'لم يتم تعيين صورة الخط.\n\nاستخدم `/line set <url>`',
-                    footer: { text: 'Crévion' }
+                    footer: { text: 'Crevion' }
                 }],
                 allowedMentions: { repliedUser: false }
             });

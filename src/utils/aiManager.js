@@ -1,4 +1,4 @@
-// src/utils/aiManager.js - ULTRA ADVANCED (3 APIs + عربي فصيح)
+// src/utils/aiManager.js - COMPLETE VERSION (كامل مع كل المميزات)
 
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
@@ -21,8 +21,7 @@ const AI_MODELS = {
         visionModel: 'llama-3.2-11b-vision-preview',
         maxTokens: 8000,
         supportsVision: true,
-        specialty: 'general',
-        costPerToken: 0.00001
+        specialty: 'general'
     },
     DEEPSEEK: {
         name: 'DeepSeek',
@@ -30,8 +29,7 @@ const AI_MODELS = {
         model: 'deepseek-chat',
         maxTokens: 4000,
         supportsVision: false,
-        specialty: 'code',
-        costPerToken: 0.000001
+        specialty: 'code'
     },
     GEMINI: {
         name: 'Gemini',
@@ -40,8 +38,7 @@ const AI_MODELS = {
         visionModel: 'gemini-1.5-flash',
         maxTokens: 8000,
         supportsVision: true,
-        specialty: 'vision',
-        costPerToken: 0.000002
+        specialty: 'vision'
     }
 };
 
@@ -75,7 +72,7 @@ class UltraAIManager {
             return AI_MODELS.DEEPSEEK;
         }
         
-        // ✅ PRIORITY 2: Images → Groq Vision (أفضل من Gemini)
+        // ✅ PRIORITY 2: Images → Groq Vision
         if (hasImages && this.groqAvailable) {
             console.log('   🎯 Selected: Groq Vision');
             return AI_MODELS.GROQ;
@@ -240,8 +237,8 @@ class UltraAIManager {
                 model: model,
                 messages: messages,
                 max_tokens: AI_MODELS.GROQ.maxTokens,
-                temperature: 0.7,
-                top_p: 0.9
+                temperature: 0.85,
+                top_p: 0.95
             }),
             timeout: 35000
         });
@@ -273,8 +270,8 @@ class UltraAIManager {
                 model: model,
                 messages: messages,
                 max_tokens: AI_MODELS.DEEPSEEK.maxTokens,
-                temperature: 0.7,
-                top_p: 0.9
+                temperature: 0.85,
+                top_p: 0.95
             }),
             timeout: 35000
         });
@@ -308,9 +305,9 @@ class UltraAIManager {
             body: JSON.stringify({
                 contents: contents,
                 generationConfig: {
-                    temperature: 0.7,
+                    temperature: 0.85,
                     topK: 40,
-                    topP: 0.9,
+                    topP: 0.95,
                     maxOutputTokens: 8192
                 }
             }),
@@ -394,31 +391,46 @@ class UltraAIManager {
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // 🧠 ENHANCED SYSTEM PROMPT (عربي فصيح!)
+    // 🧠 ENHANCED SYSTEM PROMPT (يفهم عامية - يرد فصحى)
     // ═══════════════════════════════════════════════════════════════
     
     buildEnhancedSystemPrompt(channelMemories, sharedContext, currentUser, attachments, emojis) {
         const userName = currentUser.username || 'المستخدم';
 
-        let prompt = `أنت **Crévion AI**، مساعد ذكي في سيرفر Crévion للمبدعين.
+        let prompt = `أنت **Crévion AI**، مساعد ذكي متطور في سيرفر Crevion للمبدعين العرب.
 
 🎯 **هويتك:**
-- الاسم: Crévion AI
-- الشخصية: ذكي، مفيد، ودود
-- المكان: قناة AI في Crévion Community
+- الاسم: **Crévion AI** (اسمك الرسمي)
+- الشخصية: ذكي، محترف، ودود، خفيف الظل
+- المكان: سيرفر Crevion Community للمبدعين
+- المهمة: مساعدة المبدعين وتقديم معلومات دقيقة
 
-💬 **أسلوب الحديث:**
-- استخدم اللغة العربية الفصحى بشكل طبيعي
-- كن واضحاً ومباشراً في الإجابة
-- أظهر الذكاء والاحترافية
-- قدم معلومات دقيقة ومفيدة
+💬 **أسلوب التواصل:**
+
+**افهم:**
+- ✅ العربية الفصحى
+- ✅ العامية المصرية
+- ✅ الإنجليزية
+- ✅ الإيموجيات والملصقات
+
+**رد بـ:**
+- ✅ عربية فصحى واضحة ومباشرة
+- ✅ أسلوب ودود ومحترم
+- ✅ معلومات دقيقة ومفيدة
+
+**ممنوع:**
+- ❌ الرد بالعامية (افهمها بس لا ترد بيها)
+- ❌ قول "لا أستطيع الاستجابة"
+- ❌ التوقيع باسمك في نهاية الرد
+- ❌ ذكر اسم النموذج (Groq/DeepSeek/Gemini)
 
 🧠 **قدراتك:**
-- 👁️ **رؤية الصور والملصقات** - قادر على تحليلها ووصفها بدقة
-- 💻 **كتابة الأكواد** - بجودة احترافية عالية
-- 📚 **شرح المفاهيم** - بطريقة واضحة ومفصلة
-- 🎮 **إدارة الألعاب** - قادر على تنظيم ومتابعة الأنشطة
-- 💾 **الذاكرة القوية** - أتذكر التفاصيل المهمة عن كل شخص
+- 👁️ **رؤية وتحليل الصور** - وصف دقيق وتفصيلي
+- 😊 **فهم الإيموجيات** - تفهم معنى كل إيموجي وتستخدمها بحكمة
+- 💻 **كتابة أكواد احترافية** - بأعلى جودة
+- 📚 **شرح المفاهيم** - بطريقة واضحة
+- 🎮 **إدارة الألعاب** - تنظيم الأنشطة
+- 💾 **ذاكرة قوية** - تذكر التفاصيل
 
 `;
 
@@ -430,9 +442,9 @@ class UltraAIManager {
             prompt += `\n📝 **معلومات محفوظة:**\n`;
             for (const [uid, memory] of Object.entries(channelMemories)) {
                 if (memory?.facts?.length > 0) {
-                    const name = memory.name || uid;
+                    const name = memory.name || memory.nickname || uid;
                     const facts = memory.facts.slice(0, 3).join('، ');
-                    prompt += `- ${name}: ${facts}\n`;
+                    prompt += `- **${name}:** ${facts}\n`;
                 }
             }
         }
@@ -440,9 +452,9 @@ class UltraAIManager {
         // Shared context
         if (sharedContext && sharedContext.currentGame) {
             prompt += `\n🎮 **اللعبة الحالية:**\n`;
-            prompt += `- اللعبة: ${sharedContext.currentGame}\n`;
+            prompt += `- النوع: ${sharedContext.currentGame}\n`;
             if (sharedContext.participants && sharedContext.participants.length > 0) {
-                prompt += `- عدد اللاعبين: ${sharedContext.participants.length}\n`;
+                prompt += `- اللاعبون: ${sharedContext.participants.length}\n`;
             }
         }
 
@@ -451,9 +463,9 @@ class UltraAIManager {
             prompt += `\n📎 **المرفقات:**\n`;
             attachments.forEach(att => {
                 if (att.type === 'image') {
-                    prompt += `- 🖼️ صورة: يجب تحليلها ووصفها بالتفصيل\n`;
+                    prompt += `- 🖼️ صورة: حللها ووصفها بالتفصيل\n`;
                 } else if (att.type === 'sticker') {
-                    prompt += `- 🎭 ملصق: "${att.description || att.name}" - يجب التعليق عليه\n`;
+                    prompt += `- 🎭 ملصق: "${att.description || att.name}" - علق عليه\n`;
                 } else if (att.type === 'file') {
                     prompt += `- 📄 ملف: ${att.name}\n`;
                 }
@@ -462,26 +474,35 @@ class UltraAIManager {
 
         // Emojis
         if (emojis && emojis.length > 0) {
-            prompt += `\n😀 **الرموز التعبيرية المخصصة:**\n`;
+            prompt += `\n😀 **الإيموجيات في الرسالة:**\n`;
             emojis.forEach(emoji => {
-                prompt += `- :${emoji.name}: (من السيرفر)\n`;
+                prompt += `- :${emoji.name}: (إيموجي مخصص من السيرفر)\n`;
             });
         }
 
-        prompt += `\n⚠️ **قواعد صارمة:**
-1. **لا تذكر اسم النموذج** أبداً (Groq/DeepSeek/Gemini)
-2. **لا توقيع** في نهاية الرد
-3. **رد مباشرة** على السؤال
-4. **إذا وجدت صورة** - حللها بدقة
-5. **إذا كان هناك كود** - اكتبه بشكل احترافي
-6. **لا رموز غريبة** (صينية أو غير مفهومة)
+        prompt += `\n🎯 **أمثلة على الأسلوب الصحيح:**
 
-🎯 **أمثلة على الأسلوب:**
-❌ "مرحباً عزيزي المستخدم الكريم"
-✅ "مرحباً، كيف يمكنني مساعدتك؟"
+**مثال 1 - فهم العامية:**
+👤 المستخدم: "ازيك يا صاحبي؟"
+🤖 أنت: "مرحباً! 😊 أنا بخير، شكراً لسؤالك. كيف يمكنني مساعدتك اليوم؟"
 
-❌ "شكراً جزيلاً لك على السؤال"
-✅ "سؤال جيد، دعني أجيبك"
+**مثال 2 - فهم الإيموجيات:**
+👤 المستخدم: "انت اسمك ايه؟ 🤔"
+🤖 أنت: "أنا **Crévion AI**، المساعد الذكي في سيرفر Crevion للمبدعين العرب! 🤖✨"
+
+**مثال 3 - طلب كود:**
+👤 المستخدم: "عايز كود يعمل كذا"
+🤖 أنت: "بالتأكيد! إليك الكود المطلوب:"
+
+**مثال 4 - فهم النكات:**
+👤 المستخدم: "انا عندك بتاع 😂"
+🤖 أنت: "هههه 😄 أهلاً بك! كيف يمكنني مساعدتك؟"
+
+⚠️ **تذكر:**
+- أنت **Crévion AI** وهذا اسمك الرسمي
+- افهم كل اللغات لكن رد بالفصحى فقط
+- استخدم الإيموجيات بحكمة لتكون ودوداً
+- لا تقل "لا أستطيع" - بل حاول المساعدة دائماً
 
 الآن، قدم إجابة واضحة ومفيدة:`;
 
@@ -527,16 +548,15 @@ class UltraAIManager {
     
     cleanResponse(text) {
         // Remove AI signatures
-        text = text.replace(/- (Groq|DeepSeek|Gemini|LLaMA|Crévion AI|Claude|GPT)\s*$/gim, '');
+        text = text.replace(/- (Groq|DeepSeek|Gemini|LLaMA|Claude|GPT|Assistant)\s*$/gim, '');
         text = text.replace(/\*\*(Groq|DeepSeek|Gemini|LLaMA|Claude|GPT)\*\*/gi, '');
-        text = text.replace(/\[المساعد: (Groq|DeepSeek|Gemini|LLaMA)\]/gi, '');
         
-        // Remove weird characters
+        // Remove foreign characters
         text = text.replace(/[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF]/g, '');
-        text = text.replace(/[\u0080-\u009F\u2000-\u206F]/g, '');
         
-        // Clean multiple newlines
+        // Clean spacing
         text = text.replace(/\n{3,}/g, '\n\n');
+        text = text.replace(/  +/g, ' ');
         
         return text.trim();
     }
@@ -562,19 +582,10 @@ class UltraAIManager {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 📤 EXPORT
+// 📤 EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
 export const aiManager = new UltraAIManager();
-
-export const SYSTEM_PROMPTS = {
-    general: `You are Crévion AI, an advanced assistant.`,
-    code_generation: `Generate clean, professional code with best practices.`,
-    code_explanation: `Explain code clearly and thoroughly.`,
-    debugging: `Debug code professionally.`,
-    optimization: `Optimize code for performance.`,
-    design: `Provide modern UI/UX design advice.`
-};
 
 export function extractMemoryFromMessage(message, currentMemory = {}) {
     const lower = message.toLowerCase();
@@ -594,8 +605,8 @@ export function extractMemoryFromMessage(message, currentMemory = {}) {
         }
     }
 
-    if (lower.includes('احفظ') || lower.includes('remember')) {
-        const fact = message.replace(/(احفظ|remember)/gi, '').trim();
+    if (lower.includes('احفظ') || lower.includes('تذكر') || lower.includes('remember')) {
+        const fact = message.replace(/(احفظ|تذكر|remember)/gi, '').trim();
         if (!newMemory.facts) newMemory.facts = [];
         if (fact && !newMemory.facts.includes(fact)) {
             newMemory.facts.push(fact);
